@@ -71,12 +71,14 @@ var ContactsSync = {
   },
 
   async _ensureAB() {
-    // Fetch contacts folder name from OWA; fall back to config default
-    let abName = CONFIG.AB_NAME;
-    try {
-      const owaName = await OWA.getContactsFolderName();
-      if (owaName) { abName = owaName; console.log("[M365OWA] fetched contacts folder name from OWA:", owaName); }
-    } catch (e) { console.warn("[M365OWA] could not fetch contacts folder name from OWA:", e.message || e); }
+    // Fetch contacts folder name from OWA — no fallback. If this fails, abort
+    // and retry later; we never want to create an AB with a default name.
+    const abName = await OWA.getContactsFolderName();
+    if (!abName) {
+      console.warn("[M365OWA] could not fetch contacts folder name from OWA; will retry.");
+      throw new Error("OWA contacts folder name not available");
+    }
+    console.log("[M365OWA] fetched contacts folder name from OWA:", abName);
 
     const all = await messenger.addressBooks.list(true);
     let ab = all.find(a => a.name === abName);

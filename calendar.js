@@ -91,14 +91,16 @@ var CalendarSync = {
   async _bootstrap() {
     if (!Auth.isAuthenticated()) { console.log("[M365OWA] calendar bootstrap: not authenticated; waiting for token."); return; }
     if (this._booted) { console.log("[M365OWA] calendar already bootstrapped."); return; }
-    this._booted = true;
     try {
-      // Fetch calendar name from OWA; fall back to config default
-      let calName = CONFIG.CAL_NAME;
-      try {
-        const owaName = await OWA.getCalendarFolderName();
-        if (owaName) { calName = owaName; console.log("[M365OWA] fetched calendar name from OWA:", owaName); }
-      } catch (e) { console.warn("[M365OWA] could not fetch calendar name from OWA:", e.message || e); }
+      // Fetch calendar name from OWA — no fallback. If this fails, abort and
+      // retry later; we never want to create a calendar with a default name.
+      const calName = await OWA.getCalendarFolderName();
+      if (!calName) {
+        console.warn("[M365OWA] could not fetch calendar name from OWA; will retry.");
+        return;
+      }
+      console.log("[M365OWA] fetched calendar name from OWA:", calName);
+      this._booted = true;
 
       const existing = await messenger.calendar.calendars.query({ type: this.PROVIDER_TYPE });
       let cal = existing && existing[0];
