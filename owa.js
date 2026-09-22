@@ -129,6 +129,63 @@ var OWA = {
     }
   },
 
+  // Fetch the display name of the primary calendar from OWA.
+  async getCalendarFolderName() {
+    try {
+      const data = await this._postJson("GetCalendarFolders", "Calendar", {});
+      const body = data.Body || data;
+      const groups = body.CalendarGroups || body.Folders || body.Items;
+      if (!Array.isArray(groups)) return null;
+      for (const g of groups) {
+        const cals = g && (g.Calendars || [g]);
+        if (!Array.isArray(cals)) continue;
+        for (const c of cals) {
+          const name = this._first(c, ["DisplayName", "FolderName", "Name", "FolderDisplayName"]);
+          if (name) return String(name);
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  },
+
+  // Fetch the display name of the default contacts folder via EWS FindFolder.
+  async getContactsFolderName() {
+    try {
+      const payload = {
+        __type: "FindFolderJsonRequest:#Exchange",
+        Header: {
+          __type: "JsonRequestHeaders:#Exchange",
+          RequestServerVersion: "Exchange2013",
+          TimeZoneContext: {
+            __type: "TimeZoneContext:#Exchange",
+            TimeZoneDefinition: { __type: "TimeZoneDefinitionType:#Exchange", Id: "UTC" },
+          },
+        },
+        Body: {
+          __type: "FindFolderRequest:#Exchange",
+          FolderShape: { __type: "FolderResponseShape:#Exchange", BaseShape: "Default" },
+          ParentFolderIds: [{ __type: "DistinguishedFolderId:#Exchange", Id: "contacts" }],
+          Traversal: "Shallow",
+          Paging: { __type: "FolderView:#Exchange", MaxEntriesReturned: 100, BasePoint: "Beginning" },
+        },
+      };
+      const data = await this._postJson("FindFolder", "People", payload);
+      const msgs = data.Body && data.Body.ResponseMessages && data.Body.ResponseMessages.Items;
+      const m = Array.isArray(msgs) && msgs[0];
+      if (!m || String(m.ResponseClass || "").toLowerCase() !== "success") return null;
+      const folders = m.RootFolder && m.RootFolder.Folders;
+      if (Array.isArray(folders) && folders.length) {
+        const name = this._first(folders[0], ["DisplayName", "FolderName", "Name"]);
+        if (name) return String(name);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  },
+
   // --- Calendar: list events in a range (uses default calendar directly) ---
   async listEvents(startISO, endISO) {
     const payload = {
