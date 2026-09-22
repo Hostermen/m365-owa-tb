@@ -24,11 +24,6 @@ var CONFIG = {
   // Default calendar window pulled on each sync: days forward + days back from now.
   PULL_DAYS_BACK: 30,
   PULL_DAYS_FORWARD: 90,
-
-  // Names are fetched from OWA at runtime (see owa.js getCalendarFolderName /
-  // getContactsFolderName). These are only fallbacks if the OWA fetch fails.
-  AB_NAME: "M365 OWA Contacts",
-  CAL_NAME: "M365 OWA Calendar",
   SYNC_INTERVAL_MS: 10 * 60 * 1000,
 
   // OWA service.svc actions (kept here for visibility; see owa.js for payloads).
