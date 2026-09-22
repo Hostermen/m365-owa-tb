@@ -6,12 +6,6 @@
 // mirrors the normalisation in m365-owa-cli's owa/normalize.py.
 var JCal = {
   _first(obj, keys) { for (const k of keys) if (obj && obj[k] != null) return obj[k]; return null; },
-  // Local IANA timezone (e.g. "Europe/Berlin") — matches OWA's mailbox timezone
-  // for a user sitting at their own machine.
-  _localTz() {
-    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
-    catch { return "UTC"; }
-  },
   _text(v) {
     if (v == null) return null;
     if (typeof v === "string") return v;
@@ -33,22 +27,16 @@ var JCal = {
   },
   _iso(v) {
     if (v == null) return null;
-    if (v instanceof Date) {
-      // Format as naive local time (no Z) — OWA returns times in its timezone
-      const y = v.getFullYear();
-      const m = String(v.getMonth() + 1).padStart(2, "0");
-      const d = String(v.getDate()).padStart(2, "0");
-      const hh = String(v.getHours()).padStart(2, "0");
-      const mm = String(v.getMinutes()).padStart(2, "0");
-      const ss = String(v.getSeconds()).padStart(2, "0");
-      return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
-    }
+    if (v instanceof Date) return v.toISOString();
     const s = String(v);
     if (!s) return null;
-    // OWA returns naive datetime strings (in the TimeZoneContext timezone).
-    // Strip any Z/offset so Thunderbird uses the tzid we attach in eventToJcal.
-    if (s.includes("T")) return s.replace(/Z$/, "").split("+")[0];
-    return s + "T00:00:00";
+    // OWA returns naive datetime strings (no Z). Since we send TimeZoneContext=UTC,
+    // these are UTC times — add Z so Thunderbird interprets them correctly.
+    if (s.includes("T")) {
+      if (s.endsWith("Z") || /[+-]\d{2}:?\d{2}$/.test(s)) return s;
+      return s + "Z";
+    }
+    return s + "T00:00:00Z";
   },
 
   _idStr(item) {
@@ -81,9 +69,8 @@ var JCal = {
     } else {
       const start = this._iso(startRaw);
       const end = this._iso(endRaw);
-      const tz = this._localTz();
-      if (start) props.push(["dtstart", { tzid: tz }, "date-time", start]);
-      if (end) props.push(["dtend", { tzid: tz }, "date-time", end]);
+      if (start) props.push(["dtstart", {}, "date-time", start]);
+      if (end) props.push(["dtend", {}, "date-time", end]);
     }
     const loc = this._text(this._first(item, ["Location", "location"]));
     if (loc) props.push(["location", {}, "text", loc]);
@@ -135,9 +122,19 @@ var JCal = {
   _fmtDate(prop) {
     const v = String(prop[3]);
     if (prop[2] === "date") return v + "T00:00:00.000";
-    // Send naive datetime as-is. OWA interprets it in the TimeZoneContext
-    // timezone (the user's local TZ), so no conversion needed.
-    return v.replace(/Z$/, "").split("+")[0].split(".")[0] + ".000";
+    // If already UTC (Z suffix), strip Z and format with milliseconds
+    if (/Z$/.test(v)) return v.replace(/Z$/, "").split(".")[0] + ".000";
+    // If has explicit timezone offset, parse and convert to UTC
+    if (/[+-]\d{2}:?\d{2}$/.test(v)) {
+      const d = new Date(v);
+      if (!isNaN(d)) return d.toISOString().replace(/Z$/, "").split(".")[0] + ".000";
+    }
+    // Naive datetime with tzid or floating — interpret as local browser time
+    // (user's timezone == event timezone for personal calendars), convert to UTC
+    const d = new Date(v);
+    if (!isNaN(d)) return d.toISOString().replace(/Z$/, "").split(".")[0] + ".000";
+    // Fallback: strip any offset
+    return v.split("+")[0].replace(/Z$/, "").split(".")[0] + ".000";
   },
   _stripHtml(h) {
     const q = String.fromCharCode(34), sq = String.fromCharCode(39);
