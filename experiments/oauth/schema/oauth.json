@@ -1,0 +1,83 @@
+[
+  {
+    "namespace": "oauth",
+    "functions": [
+      {
+        "name": "listAccounts",
+        "type": "function",
+        "description": "List all Thunderbird mail accounts available for OAuth2 token refresh.",
+        "async": true,
+        "parameters": [],
+        "returns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "hostname": { "type": "string" },
+              "username": { "type": "string" },
+              "type": { "type": "string" },
+              "name": { "type": "string" }
+            }
+          }
+        }
+      },
+      {
+        "name": "getAccessToken",
+        "type": "function",
+        "description": "Get a fresh OAuth2 access token using Thunderbird's built-in OAuth2 module. If hostname is omitted, auto-detects from the user's existing mail accounts, falling back to 'outlook.office365.com' for M365.",
+        "async": true,
+        "parameters": [
+          {
+            "type": "string",
+            "name": "hostname",
+            "optional": true,
+            "description": "The hostname of the mail server. If omitted, auto-detected from the username."
+          },
+          {
+            "type": "string",
+            "name": "username",
+            "description": "The username (email address) of the account"
+          },
+          {
+            "type": "string",
+            "name": "type",
+            "optional": true,
+            "default": "ews",
+            "description": "The server type, e.g. 'imap', 'ews', 'exchange'"
+          }
+        ],
+        "returns": {
+          "type": "object",
+          "properties": {
+            "accessToken": { "type": "string" },
+            "username": { "type": "string" },
+            "hostname": { "type": "string" },
+            "type": { "type": "string" }
+          }
+        }
+      },
+      {
+        "name": "detectAccount",
+        "type": "function",
+        "description": "Auto-detect OAuth2 server config from Thunderbird's existing mail accounts by matching the email address.",
+        "async": true,
+        "parameters": [
+          {
+            "type": "string",
+            "name": "email",
+            "description": "The email address to match against existing account usernames"
+          }
+        ],
+        "returns": {
+          "type": "object",
+          "properties": {
+            "hostname": { "type": "string" },
+            "username": { "type": "string" },
+            "type": { "type": "string" }
+          }
+        }
+      }
+    ]
+  }
+]
