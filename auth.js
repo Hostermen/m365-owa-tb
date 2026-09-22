@@ -72,7 +72,7 @@ var Auth = {
 
   // Configure auto-refresh using Thunderbird's built-in OAuth2.
   // hostname: e.g. "outlook.office365.com"
-  // username: e.g. "lukas.johannes.kuemmerle@iosb.fraunhofer.de"
+  // username: e.g. "user@example.com"
   async configureAutoRefresh(hostname, username, accountType) {
     this._oauthHostname = hostname || null;
     this._oauthUsername = username || null;
