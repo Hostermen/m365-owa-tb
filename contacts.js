@@ -71,9 +71,16 @@ var ContactsSync = {
   },
 
   async _ensureAB() {
+    // Fetch contacts folder name from OWA; fall back to config default
+    let abName = CONFIG.AB_NAME;
+    try {
+      const owaName = await OWA.getContactsFolderName();
+      if (owaName) { abName = owaName; console.log("[M365OWA] fetched contacts folder name from OWA:", owaName); }
+    } catch (e) { console.warn("[M365OWA] could not fetch contacts folder name from OWA:", e.message || e); }
+
     const all = await messenger.addressBooks.list(true);
-    let ab = all.find(a => a.name === CONFIG.AB_NAME);
-    if (!ab) ab = await messenger.addressBooks.create({ name: CONFIG.AB_NAME });
+    let ab = all.find(a => a.name === abName);
+    if (!ab) ab = await messenger.addressBooks.create({ name: abName });
     this.abId = ab.id;
   },
 
