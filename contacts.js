@@ -82,8 +82,12 @@ var ContactsSync = {
 
     const all = await messenger.addressBooks.list(true);
     let ab = all.find(a => a.name === abName);
-    if (!ab) ab = await messenger.addressBooks.create({ name: abName });
-    this.abId = ab.id;
+    if (ab) {
+      this.abId = ab.id;
+    } else {
+      // addressBooks.create() returns the id string directly, not an object
+      this.abId = await messenger.addressBooks.create({ name: abName });
+    }
   },
 
   async _loadMap() {
