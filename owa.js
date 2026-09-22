@@ -133,7 +133,14 @@ var OWA = {
   async listEvents(startISO, endISO) {
     const payload = {
       __type: "GetCalendarViewJsonRequest:#Exchange",
-      Header: { __type: "JsonRequestHeaders:#Exchange", RequestServerVersion: "Exchange2013" },
+      Header: {
+        __type: "JsonRequestHeaders:#Exchange",
+        RequestServerVersion: "Exchange2013",
+        TimeZoneContext: {
+          __type: "TimeZoneContext:#Exchange",
+          TimeZoneDefinition: { __type: "TimeZoneDefinitionType:#Exchange", Id: "UTC" },
+        },
+      },
       Body: {
         __type: "GetCalendarViewRequest:#Exchange",
         CalendarId: this._calendarId(),
@@ -165,7 +172,14 @@ var OWA = {
     }, item.Body ? { Body: item.Body } : {}, item.Categories ? { Categories: item.Categories } : {});
     const payload = {
       __type: "CreateItemJsonRequest:#Exchange",
-      Header: { __type: "JsonRequestHeaders:#Exchange", RequestServerVersion: "Exchange2013" },
+      Header: {
+        __type: "JsonRequestHeaders:#Exchange",
+        RequestServerVersion: "Exchange2013",
+        TimeZoneContext: {
+          __type: "TimeZoneContext:#Exchange",
+          TimeZoneDefinition: { __type: "TimeZoneDefinitionType:#Exchange", Id: "UTC" },
+        },
+      },
       Body: {
         __type: "CreateItemRequest:#Exchange",
         Items: [calItem],
@@ -203,7 +217,14 @@ var OWA = {
 
     const payload = {
       __type: "UpdateItemJsonRequest:#Exchange",
-      Header: { __type: "JsonRequestHeaders:#Exchange", RequestServerVersion: "Exchange2013" },
+      Header: {
+        __type: "JsonRequestHeaders:#Exchange",
+        RequestServerVersion: "Exchange2013",
+        TimeZoneContext: {
+          __type: "TimeZoneContext:#Exchange",
+          TimeZoneDefinition: { __type: "TimeZoneDefinitionType:#Exchange", Id: "UTC" },
+        },
+      },
       Body: {
         __type: "UpdateItemRequest:#Exchange",
         ItemChanges: [{
