@@ -30,8 +30,13 @@ var JCal = {
     if (v instanceof Date) return v.toISOString();
     const s = String(v);
     if (!s) return null;
-    // OWA ranges come back without timezone; treat as floating unless Z present.
-    return s.includes("T") ? s : s + "T00:00:00";
+    // OWA returns naive datetime strings (no Z). Since we send TimeZoneContext=UTC,
+    // these are UTC times — add Z so Thunderbird interprets them correctly.
+    if (s.includes("T")) {
+      if (s.endsWith("Z") || /[+-]\d{2}:?\d{2}$/.test(s)) return s;
+      return s + "Z";
+    }
+    return s + "T00:00:00Z";
   },
 
   _idStr(item) {
@@ -52,11 +57,21 @@ var JCal = {
     if (subject) props.push(["summary", {}, "text", String(subject)]);
     const body = this._body(item);
     if (body.text) props.push(["description", {}, "text", body.type === "html" ? this._stripHtml(body.text) : body.text]);
-    const start = this._iso(this._first(item, ["Start", "start"]));
-    const end = this._iso(this._first(item, ["End", "end"]));
+    const startRaw = this._first(item, ["Start", "start"]);
+    const endRaw = this._first(item, ["End", "end"]);
     const allDay = !!this._first(item, ["IsAllDayEvent", "isAllDay", "IsAllDay"]);
-    if (start) props.push(["dtstart", {}, allDay ? "date" : "date-time", allDay ? start.split("T")[0] : start]);
-    if (end) props.push(["dtend", {}, allDay ? "date" : "date-time", allDay ? end.split("T")[0] : end]);
+    // For all-day events, extract the date part directly (no timezone conversion)
+    if (allDay) {
+      const sd = startRaw ? String(startRaw).split("T")[0] : null;
+      const ed = endRaw ? String(endRaw).split("T")[0] : null;
+      if (sd) props.push(["dtstart", {}, "date", sd]);
+      if (ed) props.push(["dtend", {}, "date", ed]);
+    } else {
+      const start = this._iso(startRaw);
+      const end = this._iso(endRaw);
+      if (start) props.push(["dtstart", {}, "date-time", start]);
+      if (end) props.push(["dtend", {}, "date-time", end]);
+    }
     const loc = this._text(this._first(item, ["Location", "location"]));
     if (loc) props.push(["location", {}, "text", loc]);
     const cats = this._first(item, ["Categories", "categories"]);
@@ -107,7 +122,19 @@ var JCal = {
   _fmtDate(prop) {
     const v = String(prop[3]);
     if (prop[2] === "date") return v + "T00:00:00.000";
-    return v.replace(/Z$/, "").split("+")[0] + ".000";
+    // If already UTC (Z suffix), strip Z and format with milliseconds
+    if (/Z$/.test(v)) return v.replace(/Z$/, "").split(".")[0] + ".000";
+    // If has explicit timezone offset, parse and convert to UTC
+    if (/[+-]\d{2}:?\d{2}$/.test(v)) {
+      const d = new Date(v);
+      if (!isNaN(d)) return d.toISOString().replace(/Z$/, "").split(".")[0] + ".000";
+    }
+    // Naive datetime with tzid or floating — interpret as local browser time
+    // (user's timezone == event timezone for personal calendars), convert to UTC
+    const d = new Date(v);
+    if (!isNaN(d)) return d.toISOString().replace(/Z$/, "").split(".")[0] + ".000";
+    // Fallback: strip any offset
+    return v.split("+")[0].replace(/Z$/, "").split(".")[0] + ".000";
   },
   _stripHtml(h) {
     const q = String.fromCharCode(34), sq = String.fromCharCode(39);
