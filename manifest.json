@@ -1,0 +1,112 @@
+{
+  "manifest_version": 2,
+  "name": "M365 OWA Sync (Contacts + Calendar)",
+  "author": "luk27094",
+  "description": "Sync Microsoft 365 calendar + contacts into Thunderbird via Outlook on the web (OWA) internal service endpoints, using a captured OWA bearer token. Strategy ported from the m365-owa-cli project. No Azure app registration required.",
+  "version": "0.1.0",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "m365-owa@luk27094.local",
+      "strict_min_version": "128.0"
+    }
+  },
+
+  "icons": {
+    "32": "icon.svg"
+  },
+
+  "permissions": [
+    "storage",
+    "addressBooks",
+    "https://outlook.office.com/*",
+    "https://outlook.office365.com/*",
+    "https://outlook.cloud.microsoft/*",
+    "https://*.office.com/*",
+    "https://*.office365.com/*",
+    "https://*.cloud.microsoft/*"
+  ],
+
+  "calendar_provider": {
+    "capabilities": {
+      "timezones": { "floating": false, "UTC": true },
+      "attachments": false,
+      "priority": false,
+      "privacy": ["default", "public", "private"],
+      "categories": { "count": 3 },
+      "alarms": { "count": 5, "actions": ["display", "email"] },
+      "tasks": false,
+      "events": true,
+      "remove_modes": ["unsubscribe", "delete"],
+      "requires_network": true,
+      "minimum_refresh_interval": 30,
+      "scheduling": "server"
+    }
+  },
+
+  "background": {
+    "scripts": [
+      "config.js",
+      "auth.js",
+      "owa.js",
+      "vcard.js",
+      "jcal.js",
+      "contacts.js",
+      "calendar.js",
+      "background.js"
+    ]
+  },
+
+  "options_ui": {
+    "page": "options_ui/settings.html",
+    "open_in_tab": true
+  },
+
+  "experiment_apis": {
+    "oauth": {
+      "schema": "experiments/oauth/schema/oauth.json",
+      "parent": {
+        "scopes": ["addon_parent"],
+        "script": "experiments/oauth/parent/ext-oauth.js",
+        "paths": [["oauth"]]
+      }
+    },
+    "calendar_calendars": {
+      "schema": "experiments/calendar/schema/calendar-calendars.json",
+      "parent": {
+        "scopes": ["addon_parent"],
+        "script": "experiments/calendar/parent/ext-calendar-calendars.js",
+        "paths": [["calendar", "calendars"]]
+      }
+    },
+    "calendar_items": {
+      "schema": "experiments/calendar/schema/calendar-items.json",
+      "parent": {
+        "scopes": ["addon_parent"],
+        "script": "experiments/calendar/parent/ext-calendar-items.js",
+        "paths": [["calendar", "items"]]
+      }
+    },
+    "calendar_provider": {
+      "schema": "experiments/calendar/schema/calendar-provider.json",
+      "parent": {
+        "scopes": ["addon_parent"],
+        "script": "experiments/calendar/parent/ext-calendar-provider.js",
+        "events": ["startup"],
+        "paths": [["calendar", "provider"]]
+      }
+    },
+    "calendar_timezones": {
+      "schema": "experiments/calendar/schema/calendar-timezones.json",
+      "parent": {
+        "scopes": ["addon_parent"],
+        "script": "experiments/calendar/parent/ext-calendar-timezones.js",
+        "paths": [["calendar", "timezones"]]
+      },
+      "child": {
+        "scopes": ["addon_child"],
+        "script": "experiments/calendar/child/ext-calendar-timezones.js",
+        "paths": [["calendar", "timezones"]]
+      }
+    }
+  }
+}

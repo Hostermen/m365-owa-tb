@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>M365 OWA Sync — Settings</title>
+  <style>
+    body { font-family: sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; color: #222; }
+    h1 { font-size: 1.3rem; }
+    h2 { font-size: 1.05rem; margin-top: 24px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+    label { display: block; margin: 10px 0 4px; font-weight: 600; }
+    input[type=text], input[type=number], textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 0.95rem; }
+    textarea { font-family: monospace; min-height: 90px; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    button { padding: 7px 14px; margin: 6px 6px 0 0; cursor: pointer; border: 1px solid #888; background: #f6f6f6; border-radius: 4px; }
+    button.primary { background: #0a5; color: #fff; border-color: #0a5; }
+    #status { margin-top: 14px; padding: 10px; background: #f0f0f0; border-radius: 4px; white-space: pre-wrap; font-family: monospace; font-size: 0.85rem; }
+    .hint { color: #555; font-size: 0.85rem; margin: 2px 0 0; }
+    code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; }
+    a.bm { font-family: monospace; background: #eef; padding: 8px; display: inline-block; border: 1px dashed #99a; border-radius: 4px; text-decoration: none; color: #036; }
+    .err { color: #b00; }
+  </style>
+</head>
+<body>
+  <h1>M365 OWA Sync (Contacts + Calendar)</h1>
+  <p class="hint">Syncs M365 business account calendar + contacts via Outlook on the web internal endpoints. Strategy ported from <code>m365-owa-cli</code>. No Azure app registration / OAuth — you capture an OWA bearer token from your browser.</p>
+
+  <div id="status">Loading…</div>
+
+  <h2>1. Connection</h2>
+  <label>OWA host (where you log in to Outlook on the web)</label>
+  <input type="text" id="owaHost" placeholder="https://outlook.office.com">
+  <p class="hint">Enter the host (origin) only — no path. The token must be captured from the SAME host. Examples: <code>https://outlook.office.com</code>, <code>https://outlook.office365.com</code>, <code>https://outlook.cloud.microsoft</code>. A pasted URL like <code>https://outlook.cloud.microsoft/mail</code> is auto-stripped to its origin.</p>
+  <div class="row2">
+    <div>
+      <label>Connection name</label>
+      <input type="text" id="connectionName" placeholder="default">
+    </div>
+    <div>
+      <label>Address book name</label>
+      <input type="text" id="abName" placeholder="M365 OWA Contacts">
+    </div>
+  </div>
+  <label>Calendar name (in Thunderbird)</label>
+  <input type="text" id="calName" placeholder="M365 OWA Calendar">
+  <div class="row2">
+    <div>
+      <label>Pull days back</label>
+      <input type="number" id="pullDaysBack" placeholder="30">
+    </div>
+    <div>
+      <label>Pull days forward</label>
+      <input type="number" id="pullDaysForward" placeholder="90">
+    </div>
+  </div>
+  <button class="primary" id="saveConfig">Save settings</button>
+
+  <h2>2. Auto-refresh token (recommended)</h2>
+  <p class="hint">The addon automatically gets fresh access tokens using Thunderbird's built-in OAuth2 system. Select your M365 account below — the mail server config is auto-detected from your existing Thunderbird mail account.</p>
+  <label>Select account</label>
+  <select id="oauthAccountSelect" style="width:100%; padding:6px 8px; font-size:0.95rem; margin-bottom:8px;">
+    <option value="">Loading accounts…</option>
+  </select>
+  <p class="hint" id="autoRefreshStatus"></p>
+  <button class="primary" id="saveAutoRefresh">Enable auto-refresh</button>
+  <button id="disableAutoRefresh">Disable auto-refresh</button>
+
+  <h2>3. Capture OWA bearer token (manual fallback)</h2>
+  <p class="hint">Generate a bookmarklet, save it as a bookmark, open Outlook on the web in your browser (logged in), then click the bookmark. It copies your token to the clipboard and shows it. Paste it below.</p>
+  <button id="genBookmarklet">Generate bookmarklet</button>
+  <div id="bookmarkletOut" style="margin-top:8px;"></div>
+
+  <label>Paste bearer token (raw, <code>Bearer …</code>, or token JSON)</label>
+  <textarea id="token" placeholder="eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIs…"></textarea>
+  <button class="primary" id="saveToken">Save token &amp; activate</button>
+  <button id="logout">Clear token</button>
+
+  <h2>4. Sync</h2>
+  <button class="primary" id="testConn">Test connection</button>
+  <button id="syncContacts">Sync contacts now</button>
+  <button id="syncCalendar">Sync calendar now</button>
+
+  <p class="hint err" id="err"></p>
+
+  <script src="settings.js"></script>
+</body>
+</html>
