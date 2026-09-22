@@ -36,11 +36,9 @@ function updateAutoRefreshBadge(status) {
 
 window.addEventListener("DOMContentLoaded", async () => {
   const s = await browser.storage.local.get([
-    "owaHost", "connectionName", "pullDaysBack", "pullDaysForward",
+    "pullDaysBack", "pullDaysForward",
     "m365_owa_auto_refresh", "m365_owa_oauth_host", "m365_owa_oauth_user",
   ]);
-  if (s.owaHost) $("owaHost").value = s.owaHost;
-  if (s.connectionName) $("connectionName").value = s.connectionName;
   if (s.pullDaysBack) $("pullDaysBack").value = s.pullDaysBack;
   if (s.pullDaysForward) $("pullDaysForward").value = s.pullDaysForward;
   if (s.m365_owa_oauth_user) window._savedOAuthUser = s.m365_owa_oauth_user;
@@ -158,8 +156,6 @@ $("syncAll").addEventListener("click", async () => {
 $("saveConfig").addEventListener("click", async () => {
   const r = await send({
     type: "m365-owa-save-config",
-    owaHost: $("owaHost").value.trim(),
-    connectionName: $("connectionName").value.trim() || "default",
     pullDaysBack: $("pullDaysBack").value || 30,
     pullDaysForward: $("pullDaysForward").value || 90,
   });
