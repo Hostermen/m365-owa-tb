@@ -98,19 +98,6 @@
         "events": ["startup"],
         "paths": [["calendar", "provider"]]
       }
-    },
-    "calendar_timezones": {
-      "schema": "experiments/calendar/schema/calendar-timezones.json",
-      "parent": {
-        "scopes": ["addon_parent"],
-        "script": "experiments/calendar/parent/ext-calendar-timezones.js",
-        "paths": [["calendar", "timezones"]]
-      },
-      "child": {
-        "scopes": ["addon_child"],
-        "script": "experiments/calendar/child/ext-calendar-timezones.js",
-        "paths": [["calendar", "timezones"]]
-      }
     }
   }
 }
