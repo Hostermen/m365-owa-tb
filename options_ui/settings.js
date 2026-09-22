@@ -45,13 +45,12 @@ window.addEventListener("DOMContentLoaded", async () => {
   if (s.pullDaysForward) $("pullDaysForward").value = s.pullDaysForward;
   if (s.m365_owa_oauth_user) window._savedOAuthUser = s.m365_owa_oauth_user;
 
-  await updateBadge();
+  await updateConnectButton();
   await loadAccounts();
 });
 
 async function updateBadge() {
-  const status = await refreshStatus();
-  updateAutoRefreshBadge(status);
+  await updateConnectButton();
 }
 
 async function loadAccounts() {
@@ -83,33 +82,45 @@ async function getSelectedAccount() {
   try { return JSON.parse(raw); } catch { setErr("Invalid selection.", "err"); return null; }
 }
 
-// --- Main: Enable auto-refresh ---
-$("saveAutoRefresh").addEventListener("click", async () => {
-  const acct = await getSelectedAccount();
-  if (!acct) return;
-  setErr("Configuring auto-refresh…", "working");
-  try {
-    const r = await send({
-      type: "m365-owa-configure-auto-refresh",
-      hostname: acct.hostname, username: acct.username, accountType: acct.type,
-    });
-    if (r && r.ok) {
-      setErr("Testing token fetch…", "working");
-      await send({ type: "m365-owa-relogin" });
-      setErr("Auto-refresh active ✓", "ok");
-      await updateBadge();
-    } else {
-      setErr("Auto-refresh setup failed.", "err");
-    }
-  } catch (e) {
-    setErr("Failed: " + (e.message || e), "err");
+// --- Main: Connect / Disconnect ---
+async function updateConnectButton() {
+  const status = await refreshStatus();
+  const btn = $("connectBtn");
+  if (status && status.autoRefresh) {
+    btn.textContent = "Disconnect";
+    btn.classList.remove("primary");
+  } else {
+    btn.textContent = "Connect";
+    btn.classList.add("primary");
   }
-});
+  updateAutoRefreshBadge(status);
+}
 
-$("disableAutoRefresh").addEventListener("click", async () => {
-  await send({ type: "m365-owa-configure-auto-refresh", hostname: "", username: "" });
-  setErr("Auto-refresh disabled.", "ok");
-  await updateBadge();
+$("connectBtn").addEventListener("click", async () => {
+  const btn = $("connectBtn");
+  if (btn.textContent === "Disconnect") {
+    await send({ type: "m365-owa-configure-auto-refresh", hostname: "", username: "" });
+    setErr("Disconnected.", "ok");
+  } else {
+    const acct = await getSelectedAccount();
+    if (!acct) return;
+    setErr("Connecting…", "working");
+    try {
+      const r = await send({
+        type: "m365-owa-configure-auto-refresh",
+        hostname: acct.hostname, username: acct.username, accountType: acct.type,
+      });
+      if (r && r.ok) {
+        await send({ type: "m365-owa-relogin" });
+        setErr("Connected ✓", "ok");
+      } else {
+        setErr("Connection failed.", "err");
+      }
+    } catch (e) {
+      setErr("Failed: " + (e.message || e), "err");
+    }
+  }
+  await updateConnectButton();
 });
 
 // --- Main: Test connection ---
