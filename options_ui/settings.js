@@ -17,15 +17,13 @@ async function refreshStatus() {
 window.addEventListener("DOMContentLoaded", async () => {
   // prefill from storage.local
   const s = await browser.storage.local.get([
-    "owaHost", "connectionName", "pullDaysBack", "pullDaysForward", "abName", "calName",
+    "owaHost", "connectionName", "pullDaysBack", "pullDaysForward",
     "m365_owa_auto_refresh", "m365_owa_oauth_host", "m365_owa_oauth_user",
   ]);
   if (s.owaHost) $("owaHost").value = s.owaHost;
   if (s.connectionName) $("connectionName").value = s.connectionName;
   if (s.pullDaysBack) $("pullDaysBack").value = s.pullDaysBack;
   if (s.pullDaysForward) $("pullDaysForward").value = s.pullDaysForward;
-  if (s.abName) $("abName").value = s.abName;
-  if (s.calName) $("calName").value = s.calName;
   if (s.m365_owa_oauth_user) {
     // Will be selected after accounts load
     window._savedOAuthUser = s.m365_owa_oauth_user;
@@ -67,8 +65,6 @@ $("saveConfig").addEventListener("click", async () => {
     connectionName: $("connectionName").value.trim() || "default",
     pullDaysBack: $("pullDaysBack").value || 30,
     pullDaysForward: $("pullDaysForward").value || 90,
-    abName: $("abName").value.trim() || "M365 OWA Contacts",
-    calName: $("calName").value.trim() || "M365 OWA Calendar",
   });
   $("err").textContent = r && r.ok ? "Settings saved." : "Save failed.";
   await refreshStatus();

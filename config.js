@@ -25,6 +25,8 @@ var CONFIG = {
   PULL_DAYS_BACK: 30,
   PULL_DAYS_FORWARD: 90,
 
+  // Names are fetched from OWA at runtime (see owa.js getCalendarFolderName /
+  // getContactsFolderName). These are only fallbacks if the OWA fetch fails.
   AB_NAME: "M365 OWA Contacts",
   CAL_NAME: "M365 OWA Calendar",
   SYNC_INTERVAL_MS: 10 * 60 * 1000,
@@ -42,13 +44,8 @@ async function loadConfig() {
     "connectionName",
     "pullDaysBack",
     "pullDaysForward",
-    "abName",
-    "calName",
   ]);
   if (s.owaHost) {
-    // Normalize to ORIGIN only: the user often pastes the URL-bar value
-    // (e.g. https://outlook.cloud.microsoft/mail), but the OWA service
-    // endpoint lives at <origin>/owa/service.svc. Strip any path/query.
     try {
       CONFIG.OWA_HOST = new URL(s.owaHost).origin;
     } catch {
@@ -58,7 +55,5 @@ async function loadConfig() {
   if (s.connectionName) CONFIG.CONNECTION_NAME = String(s.connectionName);
   if (s.pullDaysBack) CONFIG.PULL_DAYS_BACK = Number(s.pullDaysBack) | 0;
   if (s.pullDaysForward) CONFIG.PULL_DAYS_FORWARD = Number(s.pullDaysForward) | 0;
-  if (s.abName) CONFIG.AB_NAME = String(s.abName);
-  if (s.calName) CONFIG.CAL_NAME = String(s.calName);
   console.log("[M365OWA] config loaded. host:", CONFIG.OWA_HOST, "connection:", CONFIG.CONNECTION_NAME);
 }
