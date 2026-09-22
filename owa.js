@@ -150,7 +150,6 @@ var OWA = {
         },
       };
       const data = await this._postJson("GetFolder", "Calendar", payload);
-      console.log("[M365OWA] GetFolder(calendar) raw:", JSON.stringify(data).slice(0, 1000));
       const msgs = data.Body && data.Body.ResponseMessages && data.Body.ResponseMessages.Items;
       const m = Array.isArray(msgs) && msgs[0];
       if (m && String(m.ResponseClass || "").toLowerCase() === "success") {
@@ -165,7 +164,6 @@ var OWA = {
     // Fallback: parse GetCalendarFolders
     try {
       const data = await this._postJson("GetCalendarFolders", "Calendar", {});
-      console.log("[M365OWA] GetCalendarFolders raw:", JSON.stringify(data).slice(0, 1000));
       const body = data.Body || data;
       const groups = body.CalendarGroups || body.Folders || body.Items;
       if (!Array.isArray(groups)) return null;
@@ -204,7 +202,6 @@ var OWA = {
         },
       };
       const data = await this._postJson("GetFolder", "People", payload);
-      console.log("[M365OWA] GetFolder(contacts) raw:", JSON.stringify(data).slice(0, 1000));
       const msgs = data.Body && data.Body.ResponseMessages && data.Body.ResponseMessages.Items;
       const m = Array.isArray(msgs) && msgs[0];
       if (!m || String(m.ResponseClass || "").toLowerCase() !== "success") return null;
