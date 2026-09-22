@@ -131,8 +131,41 @@ var OWA = {
 
   // Fetch the display name of the primary calendar from OWA.
   async getCalendarFolderName() {
+    // Try GetFolder on the "calendar" distinguished folder ID first — most reliable.
+    try {
+      const payload = {
+        __type: "GetFolderJsonRequest:#Exchange",
+        Header: {
+          __type: "JsonRequestHeaders:#Exchange",
+          RequestServerVersion: "Exchange2013",
+          TimeZoneContext: {
+            __type: "TimeZoneContext:#Exchange",
+            TimeZoneDefinition: { __type: "TimeZoneDefinitionType:#Exchange", Id: "UTC" },
+          },
+        },
+        Body: {
+          __type: "GetFolderRequest:#Exchange",
+          FolderShape: { __type: "FolderResponseShape:#Exchange", BaseShape: "Default" },
+          FolderIds: [{ __type: "DistinguishedFolderId:#Exchange", Id: "calendar" }],
+        },
+      };
+      const data = await this._postJson("GetFolder", "Calendar", payload);
+      console.log("[M365OWA] GetFolder(calendar) raw:", JSON.stringify(data).slice(0, 1000));
+      const msgs = data.Body && data.Body.ResponseMessages && data.Body.ResponseMessages.Items;
+      const m = Array.isArray(msgs) && msgs[0];
+      if (m && String(m.ResponseClass || "").toLowerCase() === "success") {
+        const folders = m.Folders;
+        if (Array.isArray(folders) && folders.length) {
+          const name = this._first(folders[0], ["DisplayName", "FolderName", "Name"]);
+          if (name) return String(name);
+        }
+      }
+    } catch (e) { console.warn("[M365OWA] GetFolder(calendar) error:", e.message || e); }
+
+    // Fallback: parse GetCalendarFolders
     try {
       const data = await this._postJson("GetCalendarFolders", "Calendar", {});
+      console.log("[M365OWA] GetCalendarFolders raw:", JSON.stringify(data).slice(0, 1000));
       const body = data.Body || data;
       const groups = body.CalendarGroups || body.Folders || body.Items;
       if (!Array.isArray(groups)) return null;
@@ -145,16 +178,17 @@ var OWA = {
         }
       }
       return null;
-    } catch {
+    } catch (e) {
+      console.warn("[M365OWA] getCalendarFolderName error:", e.message || e);
       return null;
     }
   },
 
-  // Fetch the display name of the default contacts folder via EWS FindFolder.
+  // Fetch the display name of the default contacts folder via EWS GetFolder.
   async getContactsFolderName() {
     try {
       const payload = {
-        __type: "FindFolderJsonRequest:#Exchange",
+        __type: "GetFolderJsonRequest:#Exchange",
         Header: {
           __type: "JsonRequestHeaders:#Exchange",
           RequestServerVersion: "Exchange2013",
@@ -164,24 +198,24 @@ var OWA = {
           },
         },
         Body: {
-          __type: "FindFolderRequest:#Exchange",
+          __type: "GetFolderRequest:#Exchange",
           FolderShape: { __type: "FolderResponseShape:#Exchange", BaseShape: "Default" },
-          ParentFolderIds: [{ __type: "DistinguishedFolderId:#Exchange", Id: "contacts" }],
-          Traversal: "Shallow",
-          Paging: { __type: "FolderView:#Exchange", MaxEntriesReturned: 100, BasePoint: "Beginning" },
+          FolderIds: [{ __type: "DistinguishedFolderId:#Exchange", Id: "contacts" }],
         },
       };
-      const data = await this._postJson("FindFolder", "People", payload);
+      const data = await this._postJson("GetFolder", "People", payload);
+      console.log("[M365OWA] GetFolder(contacts) raw:", JSON.stringify(data).slice(0, 1000));
       const msgs = data.Body && data.Body.ResponseMessages && data.Body.ResponseMessages.Items;
       const m = Array.isArray(msgs) && msgs[0];
       if (!m || String(m.ResponseClass || "").toLowerCase() !== "success") return null;
-      const folders = m.RootFolder && m.RootFolder.Folders;
+      const folders = m.Folders;
       if (Array.isArray(folders) && folders.length) {
         const name = this._first(folders[0], ["DisplayName", "FolderName", "Name"]);
         if (name) return String(name);
       }
       return null;
-    } catch {
+    } catch (e) {
+      console.warn("[M365OWA] getContactsFolderName error:", e.message || e);
       return null;
     }
   },
