@@ -5,17 +5,36 @@ async function send(msg) {
   return await browser.runtime.sendMessage(msg);
 }
 
+function setErr(msg, cls) {
+  const el = $("err");
+  el.textContent = msg;
+  el.className = cls || "ok";
+}
+
 async function refreshStatus() {
   try {
-    const s = await send({ type: "m365-owa-status" });
-    $("status").textContent = JSON.stringify(s, null, 2);
+    return await send({ type: "m365-owa-status" });
   } catch (e) {
-    $("status").textContent = "status error: " + (e.message || e);
+    return null;
+  }
+}
+
+function updateAutoRefreshBadge(status) {
+  const el = $("autoRefreshStatus");
+  if (!status) {
+    el.innerHTML = "";
+    return;
+  }
+  if (status.autoRefresh) {
+    const cfg = status.oauthConfig || {};
+    const user = cfg.username || "?";
+    el.innerHTML = `<span class="status-badge ok"><span class="dot"></span>Auto-refresh active for ${user}</span>`;
+  } else {
+    el.innerHTML = `<span class="status-badge off"><span class="dot"></span>Auto-refresh disabled — select an account to enable</span>`;
   }
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
-  // prefill from storage.local
   const s = await browser.storage.local.get([
     "owaHost", "connectionName", "pullDaysBack", "pullDaysForward",
     "m365_owa_auto_refresh", "m365_owa_oauth_host", "m365_owa_oauth_user",
@@ -24,16 +43,18 @@ window.addEventListener("DOMContentLoaded", async () => {
   if (s.connectionName) $("connectionName").value = s.connectionName;
   if (s.pullDaysBack) $("pullDaysBack").value = s.pullDaysBack;
   if (s.pullDaysForward) $("pullDaysForward").value = s.pullDaysForward;
-  if (s.m365_owa_oauth_user) {
-    // Will be selected after accounts load
-    window._savedOAuthUser = s.m365_owa_oauth_user;
-  }
-  if (s.m365_owa_auto_refresh) {
-    $("autoRefreshStatus").textContent = "Auto-refresh ENABLED for " + (s.m365_owa_oauth_user || "?");
-  }
-  await refreshStatus();
+  if (s.m365_owa_oauth_user) window._savedOAuthUser = s.m365_owa_oauth_user;
 
-  // Load available accounts into dropdown
+  await updateBadge();
+  await loadAccounts();
+});
+
+async function updateBadge() {
+  const status = await refreshStatus();
+  updateAutoRefreshBadge(status);
+}
+
+async function loadAccounts() {
   try {
     const accounts = await messenger.oauth.listAccounts();
     const sel = $("oauthAccountSelect");
@@ -43,21 +64,86 @@ window.addEventListener("DOMContentLoaded", async () => {
     } else {
       sel.innerHTML = '<option value="">— Select an account —</option>';
       for (const a of accounts) {
-        const label = `${a.name} (${a.username}) — ${a.type} @ ${a.hostname}`;
+        const label = `${a.name} (${a.username})`;
         const opt = document.createElement("option");
         opt.value = JSON.stringify({ hostname: a.hostname, username: a.username, type: a.type });
         opt.textContent = label;
-        if (window._savedOAuthUser && a.username === window._savedOAuthUser) {
-          opt.selected = true;
-        }
+        if (window._savedOAuthUser && a.username === window._savedOAuthUser) opt.selected = true;
         sel.appendChild(opt);
       }
     }
   } catch (e) {
-    $("oauthAccountSelect").innerHTML = '<option value="">Error loading accounts: ' + (e.message || e) + '</option>';
+    $("oauthAccountSelect").innerHTML = '<option value="">Error: ' + (e.message || e) + '</option>';
+  }
+}
+
+async function getSelectedAccount() {
+  const raw = $("oauthAccountSelect").value;
+  if (!raw) { setErr("Select an account first.", "err"); return null; }
+  try { return JSON.parse(raw); } catch { setErr("Invalid selection.", "err"); return null; }
+}
+
+// --- Main: Enable auto-refresh ---
+$("saveAutoRefresh").addEventListener("click", async () => {
+  const acct = await getSelectedAccount();
+  if (!acct) return;
+  setErr("Configuring auto-refresh…", "working");
+  try {
+    const r = await send({
+      type: "m365-owa-configure-auto-refresh",
+      hostname: acct.hostname, username: acct.username, accountType: acct.type,
+    });
+    if (r && r.ok) {
+      setErr("Testing token fetch…", "working");
+      await send({ type: "m365-owa-relogin" });
+      setErr("Auto-refresh active ✓", "ok");
+      await updateBadge();
+    } else {
+      setErr("Auto-refresh setup failed.", "err");
+    }
+  } catch (e) {
+    setErr("Failed: " + (e.message || e), "err");
   }
 });
 
+$("disableAutoRefresh").addEventListener("click", async () => {
+  await send({ type: "m365-owa-configure-auto-refresh", hostname: "", username: "" });
+  setErr("Auto-refresh disabled.", "ok");
+  await updateBadge();
+});
+
+// --- Main: Test connection ---
+$("testConn").addEventListener("click", async () => {
+  setErr("Testing…", "working");
+  try {
+    const s = await send({ type: "m365-owa-status" });
+    if (s && s.owaProbe === "ok") setErr("Connection OK ✓", "ok");
+    else setErr("Probe failed: " + (s && s.owaProbe), "err");
+  } catch (e) {
+    setErr("Test failed: " + (e.message || e), "err");
+  }
+});
+
+// --- Main: Sync now (contacts + calendar) ---
+$("syncAll").addEventListener("click", async () => {
+  setErr("Syncing…", "working");
+  try {
+    const [c, cal] = await Promise.all([
+      send({ type: "m365-owa-sync-contacts" }),
+      send({ type: "m365-owa-sync-calendar" }),
+    ]);
+    const parts = [];
+    if (c && c.ok) parts.push("contacts ✓");
+    else parts.push("contacts ✗");
+    if (cal && cal.ok) parts.push("calendar ✓");
+    else parts.push("calendar ✗");
+    setErr("Sync done — " + parts.join(", "), "ok");
+  } catch (e) {
+    setErr("Sync failed: " + (e.message || e), "err");
+  }
+});
+
+// --- Advanced: Save config ---
 $("saveConfig").addEventListener("click", async () => {
   const r = await send({
     type: "m365-owa-save-config",
@@ -66,103 +152,45 @@ $("saveConfig").addEventListener("click", async () => {
     pullDaysBack: $("pullDaysBack").value || 30,
     pullDaysForward: $("pullDaysForward").value || 90,
   });
-  $("err").textContent = r && r.ok ? "Settings saved." : "Save failed.";
-  await refreshStatus();
+  setErr(r && r.ok ? "Settings saved." : "Save failed.", r && r.ok ? "ok" : "err");
 });
 
+// --- Advanced: Manual token ---
 $("genBookmarklet").addEventListener("click", async () => {
   const r = await send({ type: "m365-owa-bookmarklet" });
-  if (!r || !r.url) { $("err").textContent = "Could not generate bookmarklet."; return; }
+  if (!r || !r.url) { setErr("Could not generate bookmarklet.", "err"); return; }
   const out = $("bookmarkletOut");
   out.innerHTML = "";
   const a = document.createElement("a");
   a.className = "bm";
   a.href = r.url;
-  a.textContent = "Capture M365 OWA token  (drag me to your bookmarks bar)";
+  a.textContent = "Capture M365 OWA token (drag to bookmarks bar)";
   out.appendChild(a);
-  const p = document.createElement("p");
-  p.className = "hint";
-  p.textContent = "Drag the link above to your bookmarks bar. Then open Outlook on the web and click it.";
-  out.appendChild(p);
 });
 
 $("saveToken").addEventListener("click", async () => {
   const tok = $("token").value.trim();
-  if (!tok) { $("err").textContent = "Paste a token first."; return; }
+  if (!tok) { setErr("Paste a token first.", "err"); return; }
   try {
     await send({ type: "m365-owa-set-token", token: tok });
     await send({ type: "m365-owa-relogin" });
-    $("err").textContent = "Token saved & sync started.";
+    setErr("Token saved & sync started ✓", "ok");
     $("token").value = "";
-    await refreshStatus();
   } catch (e) {
-    $("err").textContent = "Token save failed: " + (e.message || e);
+    setErr("Token save failed: " + (e.message || e), "err");
   }
 });
 
 $("logout").addEventListener("click", async () => {
   await send({ type: "m365-owa-logout" });
-  $("err").textContent = "Token cleared.";
-  await refreshStatus();
+  setErr("Token cleared.", "ok");
 });
 
-$("saveAutoRefresh").addEventListener("click", async () => {
-  const sel = $("oauthAccountSelect");
-  const raw = sel.value;
-  if (!raw) {
-    $("err").textContent = "Select an account from the dropdown.";
-    return;
-  }
-  let acct;
-  try { acct = JSON.parse(raw); } catch { $("err").textContent = "Invalid selection."; return; }
-  try {
-    const r = await send({
-      type: "m365-owa-configure-auto-refresh",
-      hostname: acct.hostname,
-      username: acct.username,
-      accountType: acct.type,
-    });
-    if (r && r.ok) {
-      $("autoRefreshStatus").textContent = "Auto-refresh enabled for " + acct.username + ". Token will be refreshed automatically.";
-      $("err").textContent = "Auto-refresh configured. Testing token fetch…";
-      await send({ type: "m365-owa-relogin" });
-      $("err").textContent = "Auto-refresh active ✓";
-    } else {
-      $("err").textContent = "Auto-refresh setup failed.";
-    }
-  } catch (e) {
-    $("err").textContent = "Auto-refresh failed: " + (e.message || e);
-  }
-  await refreshStatus();
-});
-
-$("disableAutoRefresh").addEventListener("click", async () => {
-  const r = await send({ type: "m365-owa-configure-auto-refresh", hostname: "", username: "" });
-  $("autoRefreshStatus").textContent = "Auto-refresh disabled.";
-  $("err").textContent = r && r.ok ? "Auto-refresh disabled." : "Failed.";
-  await refreshStatus();
-});
-
-$("testConn").addEventListener("click", async () => {
-  $("err").textContent = "Testing…";
-  try {
-    const s = await send({ type: "m365-owa-status" });
-    $("err").textContent = s && s.owaProbe === "ok" ? "Connection OK ✓" : "Probe failed: " + (s && s.owaProbe);
-  } catch (e) {
-    $("err").textContent = "Test failed: " + (e.message || e);
-  }
-});
-
-$("syncContacts").addEventListener("click", async () => {
-  $("err").textContent = "Syncing contacts…";
-  const r = await send({ type: "m365-owa-sync-contacts" });
-  $("err").textContent = r && r.ok ? "Contacts sync done." : "Contacts sync failed (check error console).";
-  await refreshStatus();
-});
-
-$("syncCalendar").addEventListener("click", async () => {
-  $("err").textContent = "Syncing calendar…";
-  const r = await send({ type: "m365-owa-sync-calendar" });
-  $("err").textContent = r && r.ok ? "Calendar sync done." : "Calendar sync failed.";
-  await refreshStatus();
+// --- Advanced: Diagnostics ---
+$("showStatus").addEventListener("click", async () => {
+  const el = $("status");
+  if (el.style.display !== "none") { el.style.display = "none"; return; }
+  const s = await send({ type: "m365-owa-status" });
+  el.textContent = JSON.stringify(s, null, 2);
+  el.style.display = "block";
 });

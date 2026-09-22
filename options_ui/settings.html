@@ -4,77 +4,199 @@
   <meta charset="utf-8">
   <title>M365 OWA Sync — Settings</title>
   <style>
-    body { font-family: sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; color: #222; }
-    h1 { font-size: 1.3rem; }
-    h2 { font-size: 1.05rem; margin-top: 24px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
-    label { display: block; margin: 10px 0 4px; font-weight: 600; }
-    input[type=text], input[type=number], textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 0.95rem; }
-    textarea { font-family: monospace; min-height: 90px; }
+    :root {
+      --green: #16a34a;
+      --green-dark: #15803d;
+      --green-light: #dcfce7;
+      --green-tint: #f0fdf4;
+      --border: #e5e7eb;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --bg: #f9fafb;
+      --white: #fff;
+      --red: #dc2626;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+      max-width: 580px; margin: 0 auto; padding: 32px 20px;
+      color: var(--text); background: var(--bg);
+    }
+    h1 {
+      font-size: 1.4rem; font-weight: 700; margin: 0 0 4px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    h1 .icon { width: 28px; height: 28px; }
+    .subtitle { color: var(--muted); font-size: 0.85rem; margin: 0 0 24px; }
+    h2 {
+      font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--muted); margin: 0 0 12px;
+    }
+    .card {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; margin-bottom: 16px;
+    }
+    label { display: block; margin: 0 0 6px; font-weight: 600; font-size: 0.9rem; }
+    select, input[type=text], input[type=number], textarea {
+      width: 100%; padding: 9px 12px; font-size: 0.95rem;
+      border: 1px solid var(--border); border-radius: 8px;
+      background: var(--white); color: var(--text); transition: border 0.15s;
+    }
+    select:focus, input:focus, textarea:focus {
+      outline: none; border-color: var(--green); box-shadow: 0 0 0 3px var(--green-light);
+    }
+    .hint { color: var(--muted); font-size: 0.8rem; margin: 4px 0 0; line-height: 1.4; }
     .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    button { padding: 7px 14px; margin: 6px 6px 0 0; cursor: pointer; border: 1px solid #888; background: #f6f6f6; border-radius: 4px; }
-    button.primary { background: #0a5; color: #fff; border-color: #0a5; }
-    #status { margin-top: 14px; padding: 10px; background: #f0f0f0; border-radius: 4px; white-space: pre-wrap; font-family: monospace; font-size: 0.85rem; }
-    .hint { color: #555; font-size: 0.85rem; margin: 2px 0 0; }
-    code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; }
-    a.bm { font-family: monospace; background: #eef; padding: 8px; display: inline-block; border: 1px dashed #99a; border-radius: 4px; text-decoration: none; color: #036; }
-    .err { color: #b00; }
+    button {
+      padding: 10px 18px; font-size: 0.95rem; font-weight: 600;
+      cursor: pointer; border: 1px solid var(--border); background: var(--white);
+      border-radius: 8px; color: var(--text); transition: all 0.15s;
+    }
+    button:hover { border-color: var(--muted); }
+    button.primary {
+      background: var(--green); color: var(--white); border-color: var(--green);
+    }
+    button.primary:hover { background: var(--green-dark); border-color: var(--green-dark); }
+    button.full { width: 100%; }
+    .btn-row { display: flex; gap: 10px; margin-top: 14px; }
+    .btn-row button { flex: 1; }
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 0.82rem; font-weight: 600; padding: 5px 12px;
+      border-radius: 20px; margin-bottom: 14px;
+    }
+    .status-badge.ok { background: var(--green-light); color: var(--green-dark); }
+    .status-badge.off { background: #f3f4f6; color: var(--muted); }
+    .status-badge .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .status-badge.ok .dot { background: var(--green); }
+    .status-badge.off .dot { background: #9ca3af; }
+    #autoRefreshStatus { margin: 8px 0 0; }
+    #err {
+      margin-top: 12px; font-size: 0.88rem; font-weight: 500;
+      min-height: 18px; text-align: center;
+    }
+    #err.ok { color: var(--green-dark); }
+    #err.err { color: var(--red); }
+    #err.working { color: var(--muted); }
+    code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 0.82em; }
+    textarea { font-family: monospace; min-height: 80px; resize: vertical; }
+    a.bm {
+      font-family: monospace; background: var(--green-tint); padding: 10px 14px;
+      display: inline-block; border: 1px dashed var(--green); border-radius: 8px;
+      text-decoration: none; color: var(--green-dark); font-size: 0.85rem;
+    }
+    details.advanced {
+      margin-top: 8px; border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--white); overflow: hidden;
+    }
+    details.advanced summary {
+      padding: 14px 20px; cursor: pointer; font-weight: 600; font-size: 0.9rem;
+      list-style: none; display: flex; align-items: center; gap: 8px;
+      color: var(--muted); user-select: none; transition: color 0.15s;
+    }
+    details.advanced summary:hover { color: var(--text); }
+    details.advanced summary::after {
+      content: "\203A"; margin-left: auto; font-size: 1.2rem; transition: transform 0.2s;
+    }
+    details.advanced[open] summary::after { transform: rotate(90deg); }
+    details.advanced summary::-webkit-details-marker { display: none; }
+    .adv-content { padding: 0 20px 20px; }
+    .adv-section { margin-top: 16px; }
+    #status {
+      margin-top: 12px; padding: 12px; background: var(--bg); border-radius: 8px;
+      white-space: pre-wrap; font-family: monospace; font-size: 0.78rem;
+      max-height: 240px; overflow-y: auto; color: var(--muted);
+    }
+    .divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
   </style>
 </head>
 <body>
-  <h1>M365 OWA Sync (Contacts + Calendar)</h1>
-  <p class="hint">Syncs M365 business account calendar + contacts via Outlook on the web internal endpoints. Strategy ported from <code>m365-owa-cli</code>. No Azure app registration / OAuth — you capture an OWA bearer token from your browser.</p>
+  <h1>
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c2.5-2.7 4-6.2 4-9s-1.5-6.3-4-9m0 18c-2.5-2.7-4-6.2-4-9s1.5-6.3 4-9"/>
+    </svg>
+    M365 OWA Sync
+  </h1>
+  <p class="subtitle">Bidirectional contacts &amp; calendar sync via Outlook on the web</p>
 
-  <div id="status">Loading…</div>
+  <div id="autoRefreshStatus"></div>
 
-  <h2>1. Connection</h2>
-  <label>OWA host (where you log in to Outlook on the web)</label>
-  <input type="text" id="owaHost" placeholder="https://outlook.office.com">
-  <p class="hint">Enter the host (origin) only — no path. The token must be captured from the SAME host. Examples: <code>https://outlook.office.com</code>, <code>https://outlook.office365.com</code>, <code>https://outlook.cloud.microsoft</code>. A pasted URL like <code>https://outlook.cloud.microsoft/mail</code> is auto-stripped to its origin.</p>
-  <div class="row2">
-    <div>
-      <label>Connection name</label>
-      <input type="text" id="connectionName" placeholder="default">
+  <div class="card">
+    <h2>Account</h2>
+    <label>Select your M365 account</label>
+    <select id="oauthAccountSelect">
+      <option value="">Loading accounts…</option>
+    </select>
+    <p class="hint">The addon uses Thunderbird's built-in OAuth2 to refresh tokens automatically.</p>
+    <div class="btn-row">
+      <button class="primary" id="saveAutoRefresh">Enable auto-refresh</button>
+      <button id="disableAutoRefresh">Disable</button>
     </div>
   </div>
-  <p class="hint">Calendar and address book names are fetched automatically from OWA.</p>
-  <div class="row2">
-    <div>
-      <label>Pull days back</label>
-      <input type="number" id="pullDaysBack" placeholder="30">
+
+  <div class="card">
+    <h2>Sync</h2>
+    <div class="btn-row" style="margin-top:0;">
+      <button class="primary" id="testConn">Test connection</button>
+      <button class="primary" id="syncAll">Sync now</button>
     </div>
-    <div>
-      <label>Pull days forward</label>
-      <input type="number" id="pullDaysForward" placeholder="90">
-    </div>
+    <p id="err" class="ok"></p>
   </div>
-  <button class="primary" id="saveConfig">Save settings</button>
 
-  <h2>2. Auto-refresh token (recommended)</h2>
-  <p class="hint">The addon automatically gets fresh access tokens using Thunderbird's built-in OAuth2 system. Select your M365 account below — the mail server config is auto-detected from your existing Thunderbird mail account.</p>
-  <label>Select account</label>
-  <select id="oauthAccountSelect" style="width:100%; padding:6px 8px; font-size:0.95rem; margin-bottom:8px;">
-    <option value="">Loading accounts…</option>
-  </select>
-  <p class="hint" id="autoRefreshStatus"></p>
-  <button class="primary" id="saveAutoRefresh">Enable auto-refresh</button>
-  <button id="disableAutoRefresh">Disable auto-refresh</button>
+  <details class="advanced">
+    <summary>Advanced configuration</summary>
+    <div class="adv-content">
+      <div class="adv-section">
+        <h2>Connection</h2>
+        <label>OWA host</label>
+        <input type="text" id="owaHost" placeholder="https://outlook.office.com">
+        <p class="hint">Origin only — no path. Examples: <code>https://outlook.office.com</code>, <code>https://outlook.office365.com</code></p>
+        <div class="row2" style="margin-top:12px;">
+          <div>
+            <label>Connection name</label>
+            <input type="text" id="connectionName" placeholder="default">
+          </div>
+        </div>
+        <div class="row2" style="margin-top:12px;">
+          <div>
+            <label>Pull days back</label>
+            <input type="number" id="pullDaysBack" placeholder="30">
+          </div>
+          <div>
+            <label>Pull days forward</label>
+            <input type="number" id="pullDaysForward" placeholder="90">
+          </div>
+        </div>
+        <div class="btn-row">
+          <button id="saveConfig">Save settings</button>
+        </div>
+      </div>
 
-  <h2>3. Capture OWA bearer token (manual fallback)</h2>
-  <p class="hint">Generate a bookmarklet, save it as a bookmark, open Outlook on the web in your browser (logged in), then click the bookmark. It copies your token to the clipboard and shows it. Paste it below.</p>
-  <button id="genBookmarklet">Generate bookmarklet</button>
-  <div id="bookmarkletOut" style="margin-top:8px;"></div>
+      <hr class="divider">
 
-  <label>Paste bearer token (raw, <code>Bearer …</code>, or token JSON)</label>
-  <textarea id="token" placeholder="eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIs…"></textarea>
-  <button class="primary" id="saveToken">Save token &amp; activate</button>
-  <button id="logout">Clear token</button>
+      <div class="adv-section">
+        <h2>Manual token capture (fallback)</h2>
+        <p class="hint">Only needed if auto-refresh doesn't work. Generate a bookmarklet, save it as a bookmark, open Outlook on the web (logged in), then click the bookmark.</p>
+        <button id="genBookmarklet">Generate bookmarklet</button>
+        <div id="bookmarkletOut" style="margin-top:10px;"></div>
+        <label style="margin-top:14px;">Paste bearer token</label>
+        <textarea id="token" placeholder="eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIs…"></textarea>
+        <div class="btn-row">
+          <button class="primary" id="saveToken">Save token &amp; activate</button>
+          <button id="logout">Clear token</button>
+        </div>
+      </div>
 
-  <h2>4. Sync</h2>
-  <button class="primary" id="testConn">Test connection</button>
-  <button id="syncContacts">Sync contacts now</button>
-  <button id="syncCalendar">Sync calendar now</button>
+      <hr class="divider">
 
-  <p class="hint err" id="err"></p>
+      <div class="adv-section">
+        <h2>Diagnostics</h2>
+        <button id="showStatus">Show status</button>
+        <div id="status" style="display:none;"></div>
+      </div>
+    </div>
+  </details>
 
   <script src="settings.js"></script>
 </body>
