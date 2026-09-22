@@ -9,68 +9,6 @@
 // People   (app=People)  : FindPeople   (best-effort — m365-owa-cli has no contacts)
 var OWA = {
   _first(obj, keys) { for (const k of keys) if (obj && obj[k] != null) return obj[k]; return null; },
-  // EWS/OWA uses Windows timezone IDs (e.g. "W. Europe Standard Time"), NOT
-  // IANA names (e.g. "Europe/Berlin"). Map the local IANA timezone to its
-  // Windows equivalent for TimeZoneContext.
-  _IANA_TO_EWS: {
-    "UTC": "UTC",
-    "Europe/London": "GMT Standard Time",
-    "Europe/Dublin": "GMT Standard Time",
-    "Europe/Berlin": "W. Europe Standard Time",
-    "Europe/Paris": "Romance Standard Time",
-    "Europe/Madrid": "Romance Standard Time",
-    "Europe/Rome": "W. Europe Standard Time",
-    "Europe/Amsterdam": "W. Europe Standard Time",
-    "Europe/Brussels": "Romance Standard Time",
-    "Europe/Vienna": "W. Europe Standard Time",
-    "Europe/Zurich": "W. Europe Standard Time",
-    "Europe/Stockholm": "W. Europe Standard Time",
-    "Europe/Oslo": "W. Europe Standard Time",
-    "Europe/Copenhagen": "W. Europe Standard Time",
-    "Europe/Helsinki": "FLE Standard Time",
-    "Europe/Athens": "GTB Standard Time",
-    "Europe/Warsaw": "Central European Standard Time",
-    "Europe/Bucharest": "GTB Standard Time",
-    "Europe/Moscow": "Russian Standard Time",
-    "America/New_York": "Eastern Standard Time",
-    "America/Detroit": "Eastern Standard Time",
-    "America/Chicago": "Central Standard Time",
-    "America/Denver": "Mountain Standard Time",
-    "America/Los_Angeles": "Pacific Standard Time",
-    "America/Anchorage": "Alaskan Standard Time",
-    "America/Phoenix": "US Mountain Standard Time",
-    "America/Toronto": "Eastern Standard Time",
-    "America/Vancouver": "Pacific Standard Time",
-    "America/Mexico_City": "Central Standard Time",
-    "America/Sao_Paulo": "E. South America Standard Time",
-    "America/Buenos_Aires": "E. South America Standard Time",
-    "Asia/Tokyo": "Tokyo Standard Time",
-    "Asia/Shanghai": "China Standard Time",
-    "Asia/Hong_Kong": "China Standard Time",
-    "Asia/Singapore": "Singapore Standard Time",
-    "Asia/Kolkata": "India Standard Time",
-    "Asia/Dubai": "Arabian Standard Time",
-    "Asia/Seoul": "Korea Standard Time",
-    "Asia/Bangkok": "SE Asia Standard Time",
-    "Asia/Jakarta": "SE Asia Standard Time",
-    "Australia/Sydney": "AUS Eastern Standard Time",
-    "Australia/Melbourne": "AUS Eastern Standard Time",
-    "Australia/Perth": "W. Australia Standard Time",
-    "Australia/Brisbane": "E. Australia Standard Time",
-    "Pacific/Auckland": "New Zealand Standard Time",
-  },
-  _tz() {
-    try {
-      const iana = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-      return this._IANA_TO_EWS[iana] || "UTC";
-    } catch { return "UTC"; }
-  },
-  _tzCtx() {
-    return {
-      __type: "TimeZoneContext:#Exchange",
-      TimeZoneDefinition: { __type: "TimeZoneDefinitionType:#Exchange", Id: this._tz() },
-    };
-  },
 
   // OWA event id is nested: ItemId is {"__type":"ItemId:#Exchange","Id":"...","ChangeKey":"..."}.
   // Extract the string Id (and ChangeKey for etag) from any shape we've seen.
@@ -198,7 +136,10 @@ var OWA = {
       Header: {
         __type: "JsonRequestHeaders:#Exchange",
         RequestServerVersion: "Exchange2013",
-        TimeZoneContext: this._tzCtx(),
+        TimeZoneContext: {
+          __type: "TimeZoneContext:#Exchange",
+          TimeZoneDefinition: { __type: "TimeZoneDefinitionType:#Exchange", Id: "UTC" },
+        },
       },
       Body: {
         __type: "GetCalendarViewRequest:#Exchange",
@@ -234,7 +175,10 @@ var OWA = {
       Header: {
         __type: "JsonRequestHeaders:#Exchange",
         RequestServerVersion: "Exchange2013",
-        TimeZoneContext: this._tzCtx(),
+        TimeZoneContext: {
+          __type: "TimeZoneContext:#Exchange",
+          TimeZoneDefinition: { __type: "TimeZoneDefinitionType:#Exchange", Id: "UTC" },
+        },
       },
       Body: {
         __type: "CreateItemRequest:#Exchange",
@@ -276,7 +220,10 @@ var OWA = {
       Header: {
         __type: "JsonRequestHeaders:#Exchange",
         RequestServerVersion: "Exchange2013",
-        TimeZoneContext: this._tzCtx(),
+        TimeZoneContext: {
+          __type: "TimeZoneContext:#Exchange",
+          TimeZoneDefinition: { __type: "TimeZoneDefinitionType:#Exchange", Id: "UTC" },
+        },
       },
       Body: {
         __type: "UpdateItemRequest:#Exchange",
