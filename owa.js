@@ -9,6 +9,18 @@
 // People   (app=People)  : FindPeople   (best-effort — m365-owa-cli has no contacts)
 var OWA = {
   _first(obj, keys) { for (const k of keys) if (obj && obj[k] != null) return obj[k]; return null; },
+  // Local IANA timezone — sent as TimeZoneContext so OWA interprets and
+  // returns all calendar times in the user's own timezone (no UTC conversion).
+  _tz() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
+    catch { return "UTC"; }
+  },
+  _tzCtx() {
+    return {
+      __type: "TimeZoneContext:#Exchange",
+      TimeZoneDefinition: { __type: "TimeZoneDefinitionType:#Exchange", Id: this._tz() },
+    };
+  },
 
   // OWA event id is nested: ItemId is {"__type":"ItemId:#Exchange","Id":"...","ChangeKey":"..."}.
   // Extract the string Id (and ChangeKey for etag) from any shape we've seen.
@@ -136,10 +148,7 @@ var OWA = {
       Header: {
         __type: "JsonRequestHeaders:#Exchange",
         RequestServerVersion: "Exchange2013",
-        TimeZoneContext: {
-          __type: "TimeZoneContext:#Exchange",
-          TimeZoneDefinition: { __type: "TimeZoneDefinitionType:#Exchange", Id: "UTC" },
-        },
+        TimeZoneContext: this._tzCtx(),
       },
       Body: {
         __type: "GetCalendarViewRequest:#Exchange",
@@ -175,10 +184,7 @@ var OWA = {
       Header: {
         __type: "JsonRequestHeaders:#Exchange",
         RequestServerVersion: "Exchange2013",
-        TimeZoneContext: {
-          __type: "TimeZoneContext:#Exchange",
-          TimeZoneDefinition: { __type: "TimeZoneDefinitionType:#Exchange", Id: "UTC" },
-        },
+        TimeZoneContext: this._tzCtx(),
       },
       Body: {
         __type: "CreateItemRequest:#Exchange",
@@ -220,10 +226,7 @@ var OWA = {
       Header: {
         __type: "JsonRequestHeaders:#Exchange",
         RequestServerVersion: "Exchange2013",
-        TimeZoneContext: {
-          __type: "TimeZoneContext:#Exchange",
-          TimeZoneDefinition: { __type: "TimeZoneDefinitionType:#Exchange", Id: "UTC" },
-        },
+        TimeZoneContext: this._tzCtx(),
       },
       Body: {
         __type: "UpdateItemRequest:#Exchange",
