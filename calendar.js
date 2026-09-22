@@ -93,21 +93,28 @@ var CalendarSync = {
     if (this._booted) { console.log("[M365OWA] calendar already bootstrapped."); return; }
     this._booted = true;
     try {
+      // Fetch calendar name from OWA; fall back to config default
+      let calName = CONFIG.CAL_NAME;
+      try {
+        const owaName = await OWA.getCalendarFolderName();
+        if (owaName) { calName = owaName; console.log("[M365OWA] fetched calendar name from OWA:", owaName); }
+      } catch (e) { console.warn("[M365OWA] could not fetch calendar name from OWA:", e.message || e); }
+
       const existing = await messenger.calendar.calendars.query({ type: this.PROVIDER_TYPE });
       let cal = existing && existing[0];
       if (!cal) {
         cal = await messenger.calendar.calendars.create({
           type: this.PROVIDER_TYPE,
           url: "m365owa://default",
-          name: CONFIG.CAL_NAME,
+          name: calName,
           enabled: true,
           visible: true,
         });
         console.log("[M365OWA] created provider calendar ->", cal.id);
       } else {
-        // make sure an existing one is visible+enabled after a relogin
+        // update name + make sure it's visible+enabled after a relogin
         try {
-          await messenger.calendar.calendars.update(cal.id, { enabled: true, visible: true });
+          await messenger.calendar.calendars.update(cal.id, { name: calName, enabled: true, visible: true });
         } catch {}
       }
       this.tbCalId = cal.id;
