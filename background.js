@@ -43,8 +43,6 @@ browser.runtime.onMessage.addListener((msg) => {
           connectionName: msg.connectionName,
           pullDaysBack: Number(msg.pullDaysBack) | 0,
           pullDaysForward: Number(msg.pullDaysForward) | 0,
-          abName: msg.abName,
-          calName: msg.calName,
         });
         await loadConfig();
         return { ok: true };
