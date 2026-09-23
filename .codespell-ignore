@@ -1,0 +1,3 @@
+# Codespell allow-list — words codespell flags but are legitimate.
+# One word per line (lowercase). Lines starting with # are comments.
+# Add false positives here as they appear during pre-commit runs.
