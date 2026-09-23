@@ -1,6 +1,5 @@
-<p align="center"><img src="icon.svg" width="96" height="96" alt="M365 OWA Sync"></p>
-
-<h1 align="center">M365 OWA Sync (Contacts + Calendar)</h1>
+<h1 align="center">M365 OWA Sync (Contacts + Calendar)
+<img src="icon.svg" width="64" height="64" align="right" alt="M365 OWA Sync"></h1>
 
 Bidirectional synchronisation of Microsoft 365 contacts and calendar
 with Thunderbird, using Outlook on the web (OWA) internal service
