@@ -21,7 +21,20 @@
     body {
       font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
       max-width: 580px; margin: 0 auto; padding: 32px 20px;
-      color: var(--text); background: var(--bg);
+      color: var(--text); background: var(--bg); position: relative; min-height: 100vh;
+    }
+    #particles-js {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      z-index: 0; pointer-events: none;
+    }
+    body > *:not(#particles-js) { position: relative; z-index: 1; }
+    .card {
+      background: rgba(255,255,255,0.92); backdrop-filter: blur(6px);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    details.advanced {
+      background: rgba(255,255,255,0.92); backdrop-filter: blur(6px);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
     h1 {
       font-size: 1.4rem; font-weight: 700; margin: 0 0 4px;
@@ -112,6 +125,7 @@
   </style>
 </head>
 <body>
+  <div id="particles-js"></div>
   <h1>
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c2.5-2.7 4-6.2 4-9s-1.5-6.3-4-9m0 18c-2.5-2.7-4-6.2-4-9s1.5-6.3 4-9"/>
@@ -188,6 +202,7 @@
     </div>
   </details>
 
+  <script src="particles.min.js"></script>
   <script src="settings.js"></script>
 </body>
 </html>
