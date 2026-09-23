@@ -35,6 +35,32 @@ function updateAutoRefreshBadge(status) {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
+  if (window.particlesJS) {
+    particlesJS("particles-js", {
+      particles: {
+        number: { value: 50, density: { enable: true, value_area: 900 } },
+        color: { value: "#16a34a" },
+        shape: { type: "circle" },
+        opacity: { value: 0.35, random: true, anim: { enable: true, speed: 0.8, opacity_min: 0.1, sync: false } },
+        size: { value: 4, random: true, anim: { enable: true, speed: 3, size_min: 0.3, sync: false } },
+        line_linked: { enable: true, distance: 150, color: "#16a34a", opacity: 0.18, width: 1 },
+        move: { enable: true, speed: 1.2, direction: "none", random: true, straight: false, out_mode: "out", bounce: false }
+      },
+      interactivity: {
+        detect_on: "canvas",
+        events: {
+          onhover: { enable: true, mode: "grab" },
+          onclick: { enable: true, mode: "push" },
+          resize: true
+        },
+        modes: {
+          grab: { distance: 180, line_linked: { opacity: 0.5 } },
+          push: { particles_nb: 3 },
+        }
+      },
+      retina_detect: true
+    });
+  }
   const s = await browser.storage.local.get([
     "pullDaysBack", "pullDaysForward",
     "m365_owa_auto_refresh", "m365_owa_oauth_host", "m365_owa_oauth_user",
