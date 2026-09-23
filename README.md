@@ -1,11 +1,9 @@
-<h1 align="center">M365 OWA Sync (Contacts + Calendar)
-<img src="icon.svg" width="96" height="96" align="right" hspace="16" vspace="16" alt="M365 OWA Sync"></h1>
+<h1 align="center">M365 OWA Sync (Contacts + Calendar)</h1>
 
-<br clear="right"><br>
+<p><img src="icon.svg" width="96" height="96" alt="M365 OWA Sync"></p>
 
 Bidirectional synchronisation of Microsoft 365 contacts and calendar
-with Thunderbird, using Outlook on the web (OWA) internal service
-endpoints.
+with Thunderbird, using Outlook on the web (OWA) service endpoints.
 
 The addon integrates with Thunderbird's built-in OAuth2 infrastructure
 to refresh access tokens automatically. When a Microsoft 365 mail
@@ -58,9 +56,9 @@ Install the resulting `m365-owa-tb.xpi` in Thunderbird.
 
 ## How it works
 
-The addon communicates with the OWA internal endpoint
+The addon communicates with the OWA service endpoint
 (`<OWA_HOST>/owa/service.svc?action=…&app=…`), the same service endpoint
-used by the Outlook web application internally. It issues EWS-shaped
+used by the Outlook web application. It issues EWS-shaped
 SOAP operations (`FindItem`, `CreateItem`, `UpdateItem`, `DeleteItem`,
 `GetFolder`, `GetCalendarView`) over this endpoint rather than the
 public EWS endpoint (`/EWS/Exchange.asmx`) or EAS/ActiveSync.
@@ -69,7 +67,7 @@ public EWS endpoint (`/EWS/Exchange.asmx`) or EAS/ActiveSync.
 
 The experiment API in `experiments/oauth/parent/ext-oauth.js` exposes
 `messenger.oauth.getAccessToken(hostname, username, type)`, which
-delegates to Thunderbird's internal `OAuth2Module` to obtain fresh
+delegates to Thunderbird's `OAuth2Module` to obtain fresh
 access tokens using the refresh tokens Thunderbird already stores for
 the configured mail account. A 5-minute timer in `auth.js` keeps the
 token current; on HTTP 401/403 from OWA the addon re-fetches
