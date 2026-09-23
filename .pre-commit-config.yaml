@@ -1,0 +1,70 @@
+# =============================================================================
+# Pre-commit hook configuration — tailored for m365-owa-tb
+# =============================================================================
+# JavaScript Thunderbird addon. Python/SQL/docstring/mypy/bandit/osv/semgrep
+# hooks from the original template are dropped (not applicable).
+#
+#   #   Tool                           License        Notes
+#  ---  ------------------------------ -------------  ------------------------------------
+#   1   pre-commit/pre-commit-hooks    MIT            trailing-ws, eof, json/yaml checks
+#   2   pre-commit/mirrors-eslint      MIT            JS lint (eslint itself MIT)
+#   3   codespell-project/codespell    GPL-2.0-or-later English misspelling check
+#   4   Yelp/detect-secrets            Apache-2.0     secrets baseline scan (source tree)
+#   5   gitleaks/gitleaks              MIT            git-history secret scan
+#   6   alessandrojcm/commitlint-hook  MIT            commit-msg (config-conventional)
+#
+# Prerequisites:
+#   Python 3.x (detect-secrets, codespell) | Go (gitleaks) | Node/npm (eslint, commitlint)
+#   First run:  pre-commit install && pre-commit install --hook-type commit-msg
+# =============================================================================
+
+repos:
+  # 1. Generic cleanup and config-file checks — MIT
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+
+  # 2. JavaScript lint — MIT (mirror) / MIT (eslint)
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v9.15.0
+    hooks:
+      - id: eslint
+        files: \.(js|mjs)$
+        types: [file]
+
+  # 3. Spelling: English misspellings — GPL-2.0-or-later
+  #    Skips German text via regex; allow-lists technical terms in .codespellrc
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.3.0
+    hooks:
+      - id: codespell
+        args: ["--ignore-words=.codespell-ignore", "--skip=*.xpi,*.min.js,.git/*,m365-owa-tb.xpi"]
+
+  # 4. Security: detect secrets in source tree — Apache-2.0
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline.json"]
+        exclude: package\.lock$|\.secrets\.baseline\.json$
+
+  # 5. Security: scan for hardcoded secrets in git history — MIT
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  # 6. Commit message semantic validation — MIT
+  - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook
+    rev: v9.26.0
+    hooks:
+      - id: commitlint
+        stages: [commit-msg]
+        additional_dependencies:
+          - "@commitlint/config-conventional"
