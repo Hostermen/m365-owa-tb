@@ -253,42 +253,4 @@ var Auth = {
       try { await browser.tabs.remove(live); } catch {}
     }
   },
-
-  // Generate a javascript: URL bookmarklet that intercepts OWA's Authorization header and exposes the bearer token to the user.
-  bookmarklet() {
-    // build the bookmarklet source as an array of lines
-    const src = [
-      "(function(){",
-      // guard against double-arming
-      "if(window.__owaCap){alert('already armed - reload OWA and click again');return;}",
-      "window.__owaCap=true;",
-      // regex to extract the bearer token
-      "function grab(v){var m=String(v||'').match(/Bearer\\s+([A-Za-z0-9._\\-]+)/);",
-      // on match, disarm and capture
-      "if(m){var t=m[1];window.__owaCap=false;",
-      // create a textarea to enable clipboard copy
-      "var h=document.createElement('textarea');h.value=t;document.body.appendChild(h);h.select();",
-      // copy the token to the clipboard
-      "try{document.execCommand('copy');}catch(e){}",
-      // also show it in a prompt
-      "prompt('M365 OWA bearer token (copied to clipboard). Paste into Thunderbird > M365 OWA Sync options:',t);",
-      // clean up the textarea
-      "h.remove();}}",
-      // wrap fetch to intercept Authorization headers
-      "var of=window.fetch;window.fetch=function(u,o){o=o||{};var h=o.headers||{};",
-      // grab from plain-object headers
-      "if(h.Authorization)grab(h.Authorization);",
-      // or from Headers instance
-      "else if(h instanceof Headers&&h.get&&h.get('Authorization'))grab(h.get('Authorization'));",
-      // call the original fetch
-      "return of.apply(this,arguments);};",
-      // wrap setRequestHeader to intercept Authorization
-      "var os=XMLHttpRequest.prototype.setRequestHeader;",
-      "XMLHttpRequest.prototype.setRequestHeader=function(k,v){if(/authorization/i.test(k))grab(v);return os.apply(this,arguments);};",
-      "alert('M365 OWA capture armed. Open or refresh Calendar/Mail, then the token prompt will appear.');",
-      "})();"
-    ].join("");
-    // return as a javascript: URL
-    return "javascript:" + encodeURIComponent(src);
-  }
 };
