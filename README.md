@@ -8,8 +8,7 @@ with Thunderbird, using Outlook on the web (OWA) service endpoints.
 Click **Connect** in the addon settings to open Outlook on the web in a
 Thunderbird tab and log in with your M365 account. The addon captures
 the session token from your own OWA traffic automatically and renews it
-before it expires — no Azure app registration, no Thunderbird mail
-account, and no manual token handling required.
+before it expires.
 
 ## Features
 
