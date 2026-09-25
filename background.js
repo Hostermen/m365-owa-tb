@@ -39,6 +39,13 @@ function registerHarvester() {
     (details) => {
       // skip requests without headers
       if (!details.requestHeaders) return;
+      // trace service calls while a renewal is being diagnosed
+      if (_renewalActive) {
+        // note that OWA issued a service call
+        _renewalSawServiceCall = true;
+        // log the called endpoint for diagnostics
+        console.log("[M365OWA] renewal: service call observed", details.url);
+      }
       // scan all request headers
       for (const h of details.requestHeaders) {
         // match the Authorization header case-insensitively
@@ -90,8 +97,19 @@ function owaPageUrls() {
   ];
 }
 
+// True while a hidden renewal attempt is running.
+let _renewalActive = false;
+// Set when an OWA frame response passes through during renewal.
+let _renewalSawFrameResponse = false;
+// Set when an OWA service call is observed during renewal.
+let _renewalSawServiceCall = false;
+
 // Strip framing protections from OWA responses while a hidden renewal runs (registered temporarily).
 function stripFrameHeaders(details) {
+  // note that an OWA frame response was seen
+  _renewalSawFrameResponse = true;
+  // log the allowed URL for diagnostics
+  console.log("[M365OWA] renewal: framing allowed for", details.url);
   // collect the headers to keep
   const kept = [];
   // scan all response headers
@@ -116,9 +134,6 @@ function stripFrameHeaders(details) {
   return { responseHeaders: kept };
 }
 
-// True while a hidden renewal attempt is running.
-let _renewalActive = false;
-
 // Wait until the harvester stores a token (token age drops); returns true on harvest, false on timeout.
 async function waitForHarvest(baselineAgeMs, timeoutMs) {
   // record the start time
@@ -137,11 +152,15 @@ async function waitForHarvest(baselineAgeMs, timeoutMs) {
 // Renew the token invisibly: load OWA in the hidden frame so its session mints a fresh token.
 async function renewTokenHidden() {
   // never overlap two renewals
-  if (_renewalActive) return false;
+  if (_renewalActive) return { ok: false, reason: "renewal already running" };
   // never act without a previously captured token (i.e. user never connected)
-  if (!Auth._token) return false;
+  if (!Auth._token) return { ok: false, reason: "no token stored" };
   // mark the renewal as running
   _renewalActive = true;
+  // reset the diagnostic flags
+  _renewalSawFrameResponse = false;
+  // reset the service-call flag
+  _renewalSawServiceCall = false;
   try {
     // record the current token age as the harvest baseline
     const baseline = Auth.tokenAgeMs();
@@ -154,10 +173,18 @@ async function renewTokenHidden() {
     console.log("[M365OWA] hidden renewal started");
     // wait up to 90 seconds for the harvester to capture a fresh token
     const ok = await waitForHarvest(baseline, 90000);
+    // diagnose the failure stage when nothing was harvested
+    let reason = "renewed";
+    // no OWA response means the frame never loaded (framing still blocked or no session)
+    if (!ok && !_renewalSawFrameResponse) reason = "hidden frame got no OWA response (framing blocked?)";
+    // response without service calls means OWA rendered no session (login page?)
+    else if (!ok && !_renewalSawServiceCall) reason = "OWA loaded but issued no service calls (not logged in?)";
+    // service calls without a token mean unusable Authorization headers
+    else if (!ok) reason = "service calls seen but no usable token captured";
     // log the outcome
-    console.log("[M365OWA] hidden renewal " + (ok ? "succeeded" : "timed out (session may have expired)"));
+    console.log("[M365OWA] hidden renewal " + (ok ? "succeeded" : "timed out: " + reason));
     // report the outcome
-    return ok;
+    return { ok, reason };
   } finally {
     // restore OWA framing protections immediately
     try { browser.webRequest.onHeadersReceived.removeListener(stripFrameHeaders); } catch {}
@@ -246,7 +273,7 @@ browser.runtime.onMessage.addListener((msg) => {
         return { url: Auth.bookmarklet() };
       case "m365-owa-debug-renew":
         // force a hidden background renewal on demand (Diagnostics button)
-        return { ok: await renewTokenHidden() };
+        return await renewTokenHidden();
       case "m365-owa-sync-contacts":
         // trigger a manual contacts sync
         await ContactsSync.sync();
