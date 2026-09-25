@@ -19,8 +19,7 @@ before it expires.
   push contact changes back to OWA.
 - **Automatic token refresh** — captures fresh tokens from your OWA
   session and renews them in a hidden background frame before
-  they expire. No open tab and no manual token capture are required in
-  normal operation.
+  they expire.
 - **Auto-fetched folder names** — calendar and contacts folder display
   names are retrieved from OWA at startup.
 
