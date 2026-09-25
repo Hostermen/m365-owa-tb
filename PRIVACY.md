@@ -23,8 +23,7 @@ any server other than Microsoft's (which already holds this data), and does
   the `webRequest` API, never modified) and stores it in
   `browser.storage.local`. Before the token expires, the addon loads OWA
   in a hidden background frame (using your stored OWA session) so a
-  fresh token is issued — no visible tab is needed. No Azure app
-  registration and no Thunderbird mail account are involved.
+  fresh token is issued.
 - **Framing protection** — OWA forbids being embedded in other pages. For
   the duration of a background renewal only (max ~90 seconds), the addon
   lifts OWA's `X-Frame-Options` / `frame-ancestors` restrictions for its
