@@ -26,7 +26,7 @@ manual credential management.
 
 ## Requirements
 
-- Thunderbird 128.0 or newer (tested on 156).
+- Thunderbird 156.0 or newer.
 - A Microsoft 365 mail account configured in Thunderbird using OAuth2
   (IMAP or EWS authentication method).
 
