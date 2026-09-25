@@ -78,16 +78,14 @@ browser.tabs.onRemoved.addListener((tabId) => {
   if (Auth._owaTabId === tabId) Auth._owaTabId = null;
 });
 
-// Renew the token before it goes stale by reloading the OWA tab (OWA then mints a fresh token).
+// Renew the token before it goes stale (recreating the OWA tab silently when closed).
 browser.alarms.onAlarm.addListener(async (alarm) => {
   // only handle our own renewal alarm
   if (!alarm || alarm.name !== "m365-owa-renew") return;
-  // nothing to renew without an active token
-  if (!Auth.isAuthenticated()) return;
-  // reload once the token is older than 30 minutes
-  if (Auth.tokenAgeMs() > 30 * 60 * 1000) {
-    // reload the OWA tab; the harvester picks up the fresh token
-    await Auth.reloadOwaTab().catch((e) => console.warn("[M365OWA] renewal reload failed:", e.message || e));
+  // renew once a token exists and is older than 30 minutes (even when flagged expired)
+  if (Auth._token && Auth.tokenAgeMs() > 30 * 60 * 1000) {
+    // reload or silently recreate the OWA tab; the harvester picks up the fresh token
+    await Auth.renewInBackground().catch((e) => console.warn("[M365OWA] background renewal failed:", e.message || e));
   }
 });
 
