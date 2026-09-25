@@ -207,6 +207,17 @@ $("logout").addEventListener("click", async () => {
 });
 
 // --- Advanced: Diagnostics ---
+$("forceRenew").addEventListener("click", async () => {
+  setErr("Renewing token in background…", "working");
+  try {
+    const r = await send({ type: "m365-owa-debug-renew" });
+    setErr(r && r.ok ? "Token renewed ✓" : "Renewal failed — session may have expired.", r && r.ok ? "ok" : "err");
+  } catch (e) {
+    setErr("Renewal failed: " + (e.message || e), "err");
+  }
+  await updateConnectButton();
+});
+
 $("showStatus").addEventListener("click", async () => {
   const el = $("status");
   if (el.style.display !== "none") { el.style.display = "none"; return; }
