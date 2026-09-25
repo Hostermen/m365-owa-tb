@@ -2,8 +2,8 @@
   "manifest_version": 2,
   "name": "M365 OWA Sync (Contacts + Calendar)",
   "author": "luk27094",
-  "description": "Sync Microsoft 365 calendar + contacts into Thunderbird via Outlook on the web (OWA) internal service endpoints, using a captured OWA bearer token. Strategy ported from the m365-owa-cli project. No Azure app registration required.",
-  "version": "0.1.0",
+  "description": "Sync Microsoft 365 calendar and contacts with Thunderbird via Outlook on the web (OWA) service endpoints, reusing Thunderbird's built-in OAuth2 for token refresh. No Azure app registration required.",
+  "version": "1.0.0",
   "browser_specific_settings": {
     "gecko": {
       "id": "m365-owa@luk27094.local",
