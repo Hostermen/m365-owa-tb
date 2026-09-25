@@ -24,7 +24,10 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        # vendored upstream files must stay byte-identical (ATN integrity check)
+        exclude: ^experiments/|\.min\.js$
       - id: end-of-file-fixer
+        exclude: ^experiments/|\.min\.js$
       - id: check-yaml
       - id: check-json
       - id: check-merge-conflict
