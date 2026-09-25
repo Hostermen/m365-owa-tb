@@ -104,7 +104,7 @@
             "name": "queryInfo",
             "properties": {
               "type": { "type": "string", "optional": true },
-              "url": {
+              "url": { 
                 "choices": [
                   {"type": "string"},
                   {"type": "array", "items": {"type": "string"}}
