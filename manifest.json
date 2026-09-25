@@ -25,6 +25,7 @@
     "addressBooks",
     "tabs",
     "webRequest",
+    "webRequestBlocking",
     "alarms",
     "https://outlook.office.com/*",
     "https://outlook.office365.com/*",
@@ -52,16 +53,7 @@
   },
 
   "background": {
-    "scripts": [
-      "config.js",
-      "auth.js",
-      "owa.js",
-      "vcard.js",
-      "jcal.js",
-      "contacts.js",
-      "calendar.js",
-      "background.js"
-    ]
+    "page": "background.html"
   },
 
   "options_ui": {
