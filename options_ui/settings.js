@@ -30,7 +30,7 @@ async function refreshStatus() {
 }
 
 function updateConnectBadge(status) {
-  const el = $("autoRefreshStatus");
+  const el = $("connectStatus");
   if (!status) {
     el.innerHTML = "";
     return;
@@ -81,10 +81,6 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   await updateConnectButton();
 });
-
-async function updateBadge() {
-  await updateConnectButton();
-}
 
 async function waitForAuth(timeoutMs) {
   const start = Date.now();

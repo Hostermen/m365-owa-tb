@@ -5,8 +5,9 @@
 ## Summary
 
 M365 OWA Sync synchronizes your Microsoft 365 contacts and calendar with
-Thunderbird. The addon does **not** collect, store, transmit, or share your
-personal data with anyone other than Microsoft (whose data it already is).
+Thunderbird. The addon does **not** collect analytics, does **not** talk to
+any server other than Microsoft's (which already holds this data), and does
+**not** share your personal data with any third party.
 
 ## What data the addon accesses
 
@@ -51,8 +52,9 @@ tracking.
 - Does **not** access, read, or transmit your email messages.
 - Does **not** see or store your password — login happens on Microsoft's
   own page.
-- Does **not** modify your OWA traffic — requests are only observed to
-  read the session token.
+- Does **not** modify your OWA requests or their content — the only
+  responses ever altered are OWA's framing protections during a
+  background renewal (see above), which are restored immediately.
 
 ## Third-party code
 
