@@ -272,9 +272,6 @@ browser.runtime.onMessage.addListener((msg) => {
         // reload CONFIG from the updated storage
         await loadConfig();
         return { ok: true };
-      case "m365-owa-bookmarklet":
-        // return the token-capture bookmarklet URL
-        return { url: Auth.bookmarklet() };
       case "m365-owa-debug-renew":
         // force a hidden background renewal on demand (Diagnostics button)
         return await renewTokenHidden();
@@ -317,8 +314,6 @@ globalThis.M365OWA = {
   async setToken(raw) { await Auth.setToken(raw); console.log("Token stored. Reload addon or call M365OWA.reload()"); },
   // Log out by clearing the token.
   async logout() { await Auth.logout(); console.log("Logout OK"); },
-  // Return the token-capture bookmarklet URL.
-  bookmarklet() { return Auth.bookmarklet(); },
   // Trigger a contacts sync.
   async syncContacts() { return ContactsSync.sync(); },
   // Trigger a calendar sync.
