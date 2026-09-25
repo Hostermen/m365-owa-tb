@@ -211,7 +211,7 @@ $("forceRenew").addEventListener("click", async () => {
   setErr("Renewing token in background…", "working");
   try {
     const r = await send({ type: "m365-owa-debug-renew" });
-    setErr(r && r.ok ? "Token renewed ✓" : "Renewal failed — session may have expired.", r && r.ok ? "ok" : "err");
+    setErr(r && r.ok ? "Token renewed ✓" : "Renewal failed — " + ((r && r.reason) || "unknown"), r && r.ok ? "ok" : "err");
   } catch (e) {
     setErr("Renewal failed: " + (e.message || e), "err");
   }
