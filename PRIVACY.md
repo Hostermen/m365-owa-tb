@@ -20,9 +20,15 @@ personal data with anyone other than Microsoft (whose data it already is).
   the web in a Thunderbird tab. After you log in, the addon reads the
   `Authorization` bearer token from your own OWA requests (observed via
   the `webRequest` API, never modified) and stores it in
-  `browser.storage.local`. Before the token expires, the addon reloads
-  the OWA tab so a fresh token is issued. No Azure app registration and
-  no Thunderbird mail account are involved.
+  `browser.storage.local`. Before the token expires, the addon loads OWA
+  in a hidden background frame (using your stored OWA session) so a
+  fresh token is issued — no visible tab is needed. No Azure app
+  registration and no Thunderbird mail account are involved.
+- **Framing protection** — OWA forbids being embedded in other pages. For
+  the duration of a background renewal only (max ~90 seconds), the addon
+  lifts OWA's `X-Frame-Options` / `frame-ancestors` restrictions for its
+  own hidden frame, then restores them immediately. Your OWA traffic is
+  never modified, only observed.
 - **Login page interaction** — you type your credentials directly into
   Microsoft's Outlook on the web page. The addon never sees, touches, or
   stores your password.

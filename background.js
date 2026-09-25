@@ -17,6 +17,8 @@
   }
   // initialise the calendar sync provider (self-bootstraps on first pull)
   CalendarSync.init();
+  // opportunistically renew a stale token left over from a previous session
+  maybeRenew().catch((e) => console.warn("[M365OWA] startup renewal failed:", e.message || e));
 })();
 
 // OWA service endpoints whose Authorization headers carry fresh bearer tokens.
@@ -78,15 +80,112 @@ browser.tabs.onRemoved.addListener((tabId) => {
   if (Auth._owaTabId === tabId) Auth._owaTabId = null;
 });
 
-// Renew the token before it goes stale (recreating the OWA tab silently when closed).
+// OWA page URLs loaded into the hidden renewal frame.
+function owaPageUrls() {
+  // return one match pattern per first-party OWA host
+  return [
+    "https://outlook.office.com/owa/*",
+    "https://outlook.office365.com/owa/*",
+    "https://outlook.cloud.microsoft/owa/*",
+  ];
+}
+
+// Strip framing protections from OWA responses while a hidden renewal runs (registered temporarily).
+function stripFrameHeaders(details) {
+  // collect the headers to keep
+  const kept = [];
+  // scan all response headers
+  for (const h of details.responseHeaders || []) {
+    // normalise the header name
+    const name = (h.name || "").toLowerCase();
+    // drop clickjacking headers so the hidden frame may load OWA
+    if (name === "x-frame-options" || name === "frame-options") continue;
+    // rewrite CSP without the frame-ancestors directive
+    if (name === "content-security-policy") {
+      // split, drop frame-ancestors, rejoin
+      const v = String(h.value || "").split(";").map((s) => s.trim()).filter((s) => s && !/^frame-ancestors/i.test(s)).join("; ");
+      // keep the rewritten policy when non-empty
+      if (v) kept.push({ name: h.name, value: v });
+      // skip the original header
+      continue;
+    }
+    // keep everything else untouched
+    kept.push({ name: h.name, value: h.value });
+  }
+  // return the filtered headers
+  return { responseHeaders: kept };
+}
+
+// True while a hidden renewal attempt is running.
+let _renewalActive = false;
+
+// Wait until the harvester stores a token (token age drops); returns true on harvest, false on timeout.
+async function waitForHarvest(baselineAgeMs, timeoutMs) {
+  // record the start time
+  const start = Date.now();
+  // poll until the timeout expires
+  while (Date.now() - start < timeoutMs) {
+    // a fresh harvest resets the token age below the baseline
+    if (Auth.tokenAgeMs() < baselineAgeMs) return true;
+    // wait 2 seconds between polls
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  // report timeout
+  return false;
+}
+
+// Renew the token invisibly: load OWA in the hidden frame so its session mints a fresh token.
+async function renewTokenHidden() {
+  // never overlap two renewals
+  if (_renewalActive) return false;
+  // never act without a previously captured token (i.e. user never connected)
+  if (!Auth._token) return false;
+  // mark the renewal as running
+  _renewalActive = true;
+  try {
+    // record the current token age as the harvest baseline
+    const baseline = Auth.tokenAgeMs();
+    // temporarily allow framing OWA inside the background page
+    browser.webRequest.onHeadersReceived.addListener(stripFrameHeaders, { urls: owaPageUrls(), types: ["sub_frame"] }, ["blocking", "responseHeaders"]);
+    // locate the hidden renewal frame
+    const frame = document.getElementById("owaRenewal");
+    // load OWA with the stored session cookies
+    frame.src = Auth.owaLoginUrl();
+    console.log("[M365OWA] hidden renewal started");
+    // wait up to 90 seconds for the harvester to capture a fresh token
+    const ok = await waitForHarvest(baseline, 90000);
+    // log the outcome
+    console.log("[M365OWA] hidden renewal " + (ok ? "succeeded" : "timed out (session may have expired)"));
+    // report the outcome
+    return ok;
+  } finally {
+    // restore OWA framing protections immediately
+    try { browser.webRequest.onHeadersReceived.removeListener(stripFrameHeaders); } catch {}
+    // unload OWA from the hidden frame to free resources
+    const frame = document.getElementById("owaRenewal");
+    // navigate the frame away
+    if (frame) frame.src = "about:blank";
+    // mark the renewal as finished
+    _renewalActive = false;
+  }
+}
+
+// Renew once a token exists and is older than 30 minutes (even when flagged expired).
+async function maybeRenew() {
+  // skip when no token was ever captured
+  if (!Auth._token) return;
+  // skip fresh tokens
+  if (Auth.tokenAgeMs() <= 30 * 60 * 1000) return;
+  // run the hidden renewal; the harvester picks up the fresh token
+  await renewTokenHidden();
+}
+
+// Renew the token before it goes stale via the hidden renewal frame.
 browser.alarms.onAlarm.addListener(async (alarm) => {
   // only handle our own renewal alarm
   if (!alarm || alarm.name !== "m365-owa-renew") return;
-  // renew once a token exists and is older than 30 minutes (even when flagged expired)
-  if (Auth._token && Auth.tokenAgeMs() > 30 * 60 * 1000) {
-    // reload or silently recreate the OWA tab; the harvester picks up the fresh token
-    await Auth.renewInBackground().catch((e) => console.warn("[M365OWA] background renewal failed:", e.message || e));
-  }
+  // run the renewal check, logging failures
+  await maybeRenew().catch((e) => console.warn("[M365OWA] background renewal failed:", e.message || e));
 });
 
 // Listen for token/config changes and control messages from the options page.

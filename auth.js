@@ -242,63 +242,6 @@ var Auth = {
     return this._owaTabId;
   },
 
-  // Open (or adopt) the OWA tab silently in the background without stealing focus.
-  async ensureBackgroundOwaTab() {
-    // check the tracked tab first
-    const live = await this._liveOwaTabId();
-    // reuse it when alive (leave its visibility untouched)
-    if (live != null) return live;
-    // scan open tabs for an OWA tab to adopt
-    const tabs = await browser.tabs.query({ url: ["https://outlook.office.com/owa/*", "https://outlook.office365.com/owa/*", "https://outlook.cloud.microsoft/owa/*"] });
-    // adopt the first match when found
-    if (tabs && tabs.length > 0) {
-      // remember the adopted tab
-      this._owaTabId = tabs[0].id;
-      // return the adopted id
-      return this._owaTabId;
-    }
-    // create a fresh OWA tab in the background
-    const created = await browser.tabs.create({ url: this.owaLoginUrl(), active: false });
-    // remember the new tab
-    this._owaTabId = created.id;
-    console.log("[M365OWA] opened background OWA tab", this._owaTabId);
-    // return the new id
-    return this._owaTabId;
-  },
-
-  // Reload the OWA tab so OWA mints a fresh token that gets harvested; returns true when reloaded.
-  async reloadOwaTab() {
-    // check the tracked tab first
-    const live = await this._liveOwaTabId();
-    // bail out when no OWA tab is open
-    if (live == null) return false;
-    // reload it without activating
-    await browser.tabs.reload(live);
-    console.log("[M365OWA] reloaded OWA tab to renew token");
-    // report success
-    return true;
-  },
-
-  // Renew the token in the background: reload the OWA tab, recreating it silently when closed.
-  async renewInBackground() {
-    // never act without a previously captured token (i.e. user never connected)
-    if (!this._token) return false;
-    // check the tracked tab first
-    const live = await this._liveOwaTabId();
-    // reload the existing tab when alive
-    if (live != null) {
-      // reload it without activating
-      await browser.tabs.reload(live);
-      console.log("[M365OWA] reloaded OWA tab to renew token");
-      // report success
-      return true;
-    }
-    // recreate the tab silently; the stored OWA session signs in and tokens get harvested
-    await this.ensureBackgroundOwaTab();
-    // report success
-    return true;
-  },
-
   // Close the tracked OWA tab if it still exists.
   async closeOwaTab() {
     // check the tracked tab first
