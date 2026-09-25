@@ -27,8 +27,9 @@ any server other than Microsoft's (which already holds this data), and does
 - **Framing protection** — OWA forbids being embedded in other pages. For
   the duration of a background renewal only (max ~90 seconds), the addon
   lifts OWA's `X-Frame-Options` / `frame-ancestors` restrictions for its
-  own hidden frame, then restores them immediately. Your OWA traffic is
-  never modified, only observed.
+  own hidden frame, then restores them immediately. Nothing else about
+  your OWA traffic is modified — requests are only observed to read the
+  session token.
 - **Login page interaction** — you type your credentials directly into
   Microsoft's Outlook on the web page. The addon never sees, touches, or
   stores your password.
