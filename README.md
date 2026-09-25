@@ -55,37 +55,6 @@ npx web-ext build --overwrite-dest -a .
 This produces `m365_owa_sync_contacts_calendar_-<version>.zip`.
 Rename it to `m365-owa-tb.xpi` and install in Thunderbird.
 
-## How it works
-
-The addon communicates with the OWA service endpoint
-(`<OWA_HOST>/owa/service.svc?action=…&app=…`), the same service endpoint
-used by the Outlook web application. It issues EWS-shaped
-SOAP operations (`FindItem`, `CreateItem`, `UpdateItem`, `DeleteItem`,
-`GetFolder`, `GetCalendarView`) over this endpoint rather than the
-public EWS endpoint (`/EWS/Exchange.asmx`) or EAS/ActiveSync.
-
-### Token refresh
-
-The experiment API in `experiments/oauth/parent/ext-oauth.js` exposes
-`messenger.oauth.getAccessToken(hostname, username, type)`, which
-delegates to Thunderbird's `OAuth2Module` to obtain fresh
-access tokens using the refresh tokens Thunderbird already stores for
-the configured mail account. A 5-minute timer in `auth.js` keeps the
-token current; on HTTP 401/403 from OWA the addon re-fetches
-immediately.
-
-### Manual token fallback
-
-When auto-refresh is unavailable (e.g. the account uses a non-OAuth2
-authentication method), advanced settings provide a manual token
-capture flow:
-
-1. Click **Generate bookmarklet**.
-2. Save the generated bookmark.
-3. Open Outlook on the web in a browser, logged in.
-4. Click the bookmark — it copies the bearer token to the clipboard.
-5. Paste it into the addon's "Paste bearer token" field and save.
-
 ## Architecture
 
 | File | Role |
@@ -110,16 +79,3 @@ capture flow:
 Bundled third-party library:
 - `options_ui/particles.min.js` — [particles.js](https://github.com/VincentGarreau/particles.js)
   by Vincent Garreau, MIT license.
-
-## Limitations
-
-- Contact push-update is implemented as delete-then-create (OWA's People
-  module rejects direct `UpdateItem` on personal contacts). The OWA
-  ItemId changes on every update; the addon tracks the new id via
-  `vcard.js`'s `rewriteOwaId()`.
-- `FindItem` on the contacts folder may return 0 contacts in some
-  tenant configurations; this is under investigation.
-- The OWA `service.svc` endpoint is undocumented. As long as the
-  Outlook web application functions, the addon continues to work; if
-  Microsoft significantly reworks the OWA backend, the addon may
-  require updates.
