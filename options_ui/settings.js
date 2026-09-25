@@ -175,37 +175,6 @@ $("saveConfig").addEventListener("click", async () => {
   setErr(r && r.ok ? "Settings saved." : "Save failed.", r && r.ok ? "ok" : "err");
 });
 
-// --- Advanced: Manual token ---
-$("genBookmarklet").addEventListener("click", async () => {
-  const r = await send({ type: "m365-owa-bookmarklet" });
-  if (!r || !r.url) { setErr("Could not generate bookmarklet.", "err"); return; }
-  const out = $("bookmarkletOut");
-  out.innerHTML = "";
-  const a = document.createElement("a");
-  a.className = "bm";
-  a.href = r.url;
-  a.textContent = "Capture M365 OWA token (drag to bookmarks bar)";
-  out.appendChild(a);
-});
-
-$("saveToken").addEventListener("click", async () => {
-  const tok = $("token").value.trim();
-  if (!tok) { setErr("Paste a token first.", "err"); return; }
-  try {
-    await send({ type: "m365-owa-set-token", token: tok });
-    await send({ type: "m365-owa-relogin" });
-    setErr("Token saved & sync started ✓", "ok");
-    $("token").value = "";
-  } catch (e) {
-    setErr("Token save failed: " + (e.message || e), "err");
-  }
-});
-
-$("logout").addEventListener("click", async () => {
-  await send({ type: "m365-owa-logout" });
-  setErr("Token cleared.", "ok");
-});
-
 // --- Advanced: Diagnostics ---
 $("forceRenew").addEventListener("click", async () => {
   setErr("Renewing token in background…", "working");
