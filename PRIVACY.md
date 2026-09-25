@@ -16,12 +16,18 @@ personal data with anyone other than Microsoft (whose data it already is).
 - **Calendar events** — your Microsoft 365 calendar events are fetched from
   OWA and stored in a Thunderbird calendar. Events created, edited, or
   deleted in Thunderbird are pushed back to OWA.
-- **OAuth2 access tokens** — the addon obtains access tokens from
-  Thunderbird's built-in OAuth2 token store via an experiment API. Tokens
-  are kept in memory and refreshed as needed. They are never written to
-  disk by the addon (Thunderbird manages token persistence).
-- **Account configuration** — the addon stores the selected mail account
-  hostname, username, and sync preferences in `browser.storage.local`.
+- **Session tokens** — when you click Connect, the addon opens Outlook on
+  the web in a Thunderbird tab. After you log in, the addon reads the
+  `Authorization` bearer token from your own OWA requests (observed via
+  the `webRequest` API, never modified) and stores it in
+  `browser.storage.local`. Before the token expires, the addon reloads
+  the OWA tab so a fresh token is issued. No Azure app registration and
+  no Thunderbird mail account are involved.
+- **Login page interaction** — you type your credentials directly into
+  Microsoft's Outlook on the web page. The addon never sees, touches, or
+  stores your password.
+- **Addon settings** — sync range and connection name are stored in
+  `browser.storage.local`.
 
 ## Where data goes
 
@@ -37,7 +43,10 @@ tracking.
 - Does **not** include analytics or tracking libraries.
 - Does **not** upload your data to any service other than Microsoft OWA.
 - Does **not** access, read, or transmit your email messages.
-- Does **not** store OAuth2 tokens outside of Thunderbird's own token store.
+- Does **not** see or store your password — login happens on Microsoft's
+  own page.
+- Does **not** modify your OWA traffic — requests are only observed to
+  read the session token.
 
 ## Third-party code
 

@@ -29,18 +29,19 @@ async function refreshStatus() {
   }
 }
 
-function updateAutoRefreshBadge(status) {
+function updateConnectBadge(status) {
   const el = $("autoRefreshStatus");
   if (!status) {
     el.innerHTML = "";
     return;
   }
-  if (status.autoRefresh) {
-    const cfg = status.oauthConfig || {};
-    const user = cfg.username || "?";
-    el.replaceChildren(badge("ok", "Auto-refresh active for " + user));
+  if (status.authenticated) {
+    const ageMin = Math.floor((status.tokenAgeSec || 0) / 60);
+    el.replaceChildren(badge("ok", "Connected ✓ (token " + ageMin + " min old)"));
+  } else if (status.owaTabOpen) {
+    el.replaceChildren(badge("off", "Waiting for OWA login — complete it in the opened tab"));
   } else {
-    el.replaceChildren(badge("off", "Auto-refresh disabled — select an account to enable"));
+    el.replaceChildren(badge("off", "Not connected — click Connect to log in to OWA"));
   }
 }
 
@@ -73,86 +74,57 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
   const s = await browser.storage.local.get([
     "pullDaysBack", "pullDaysForward",
-    "m365_owa_auto_refresh", "m365_owa_oauth_host", "m365_owa_oauth_user",
   ]);
   if (s.pullDaysBack) $("pullDaysBack").value = s.pullDaysBack;
   if (s.pullDaysForward) $("pullDaysForward").value = s.pullDaysForward;
-  if (s.m365_owa_oauth_user) window._savedOAuthUser = s.m365_owa_oauth_user;
 
   await updateConnectButton();
-  await loadAccounts();
 });
 
 async function updateBadge() {
   await updateConnectButton();
 }
 
-async function loadAccounts() {
-  try {
-    const accounts = await messenger.oauth.listAccounts();
-    const sel = $("oauthAccountSelect");
-    sel.innerHTML = "";
-    if (!accounts || accounts.length === 0) {
-      sel.innerHTML = '<option value="">No mail accounts found</option>';
-    } else {
-      sel.innerHTML = '<option value="">— Select an account —</option>';
-      for (const a of accounts) {
-        const label = `${a.name} (${a.username})`;
-        const opt = document.createElement("option");
-        opt.value = JSON.stringify({ hostname: a.hostname, username: a.username, type: a.type });
-        opt.textContent = label;
-        if (window._savedOAuthUser && a.username === window._savedOAuthUser) opt.selected = true;
-        sel.appendChild(opt);
-      }
-    }
-  } catch (e) {
-    const sel = $("oauthAccountSelect");
-    const opt = document.createElement("option");
-    opt.value = "";
-    opt.textContent = "Error: " + (e.message || e);
-    sel.replaceChildren(opt);
+async function waitForAuth(timeoutMs) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const s = await refreshStatus();
+    if (s && s.authenticated) return s;
+    await new Promise((r) => setTimeout(r, 2000));
   }
-}
-
-async function getSelectedAccount() {
-  const raw = $("oauthAccountSelect").value;
-  if (!raw) { setErr("Select an account first.", "err"); return null; }
-  try { return JSON.parse(raw); } catch { setErr("Invalid selection.", "err"); return null; }
+  return await refreshStatus();
 }
 
 // --- Main: Connect / Disconnect ---
 async function updateConnectButton() {
   const status = await refreshStatus();
   const btn = $("connectBtn");
-  if (status && status.autoRefresh) {
+  if (status && status.authenticated) {
     btn.textContent = "Disconnect";
     btn.classList.remove("primary");
   } else {
     btn.textContent = "Connect";
     btn.classList.add("primary");
   }
-  updateAutoRefreshBadge(status);
+  updateConnectBadge(status);
 }
 
 $("connectBtn").addEventListener("click", async () => {
   const btn = $("connectBtn");
   if (btn.textContent === "Disconnect") {
-    await send({ type: "m365-owa-configure-auto-refresh", hostname: "", username: "" });
+    await send({ type: "m365-owa-disconnect" });
     setErr("Disconnected.", "ok");
   } else {
-    const acct = await getSelectedAccount();
-    if (!acct) return;
-    setErr("Connecting…", "working");
+    setErr("Opening OWA — log in in the opened tab…", "working");
     try {
-      const r = await send({
-        type: "m365-owa-configure-auto-refresh",
-        hostname: acct.hostname, username: acct.username, accountType: acct.type,
-      });
-      if (r && r.ok) {
+      const r = await send({ type: "m365-owa-connect" });
+      if (!r || !r.ok) { setErr("Could not open OWA tab.", "err"); return; }
+      const s = await waitForAuth(120000);
+      if (s && s.authenticated) {
         await send({ type: "m365-owa-relogin" });
         setErr("Connected ✓", "ok");
       } else {
-        setErr("Connection failed.", "err");
+        setErr("Still waiting for login — complete it in the OWA tab.", "err");
       }
     } catch (e) {
       setErr("Failed: " + (e.message || e), "err");

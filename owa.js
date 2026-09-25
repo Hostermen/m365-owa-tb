@@ -45,7 +45,7 @@ var OWA = {
 
   // Build the HTTP headers for a service.svc request (includes the bearer token).
   async _headers(action) {
-    // get the current token (may auto-refresh)
+    // get the current token (throws when missing or expired)
     const token = await Auth.getTokenAsync();
     return {
       Accept: "application/json",

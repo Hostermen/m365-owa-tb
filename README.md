@@ -5,11 +5,11 @@
 Bidirectional synchronisation of Microsoft 365 contacts and calendar
 with Thunderbird, using Outlook on the web (OWA) service endpoints.
 
-The addon integrates with Thunderbird's built-in OAuth2 infrastructure
-to refresh access tokens automatically. When a Microsoft 365 mail
-account is configured in Thunderbird with OAuth2, the addon can obtain
-fresh access tokens without any external application registration or
-manual credential management.
+Click **Connect** in the addon settings to open Outlook on the web in a
+Thunderbird tab and log in with your M365 account. The addon captures
+the session token from your own OWA traffic automatically and renews it
+before it expires — no Azure app registration, no Thunderbird mail
+account, and no manual token handling required.
 
 ## Features
 
@@ -18,17 +18,16 @@ manual credential management.
   Timezone-safe (UTC-normalised).
 - **Contacts sync** — pull contacts into a Thunderbird address book and
   push contact changes back to OWA.
-- **Automatic token refresh** — reuses the OAuth2 refresh tokens that
-  Thunderbird already stores for the mail account. No manual token
-  capture is required in normal operation.
+- **Automatic token refresh** — captures fresh tokens from your OWA
+  session and reloads the OWA tab before the token expires. No manual
+  token capture is required in normal operation.
 - **Auto-fetched folder names** — calendar and contacts folder display
   names are retrieved from OWA at startup.
 
 ## Requirements
 
 - Thunderbird 156.0 or newer.
-- A Microsoft 365 mail account configured in Thunderbird using OAuth2
-  (IMAP or EWS authentication method).
+- A Microsoft 365 account that can log in to Outlook on the web.
 
 ## Installation
 
@@ -36,8 +35,9 @@ manual credential management.
    [releases](./releases) page (or build it — see below).
 2. In Thunderbird: **Add-ons & Themes → gear menu → Install Add-on From
    File…** → select the `.xpi`.
-3. Open the addon settings, select your M365 account from the dropdown,
-   and click **Connect**.
+3. Open the addon settings and click **Connect** — Outlook on the web
+   opens in a Thunderbird tab. Log in with your M365 account; the
+   settings page shows "Connected ✓" once the token is captured.
 4. Click **Sync now** to pull your contacts and calendar.
 
 ## Build
@@ -62,15 +62,14 @@ Rename it to `m365-owa-tb.xpi` and install in Thunderbird.
 | `manifest.json` | WebExtension manifest (MV2) + experiment API declarations |
 | `background.js` | Lifecycle, message router, sync orchestration |
 | `config.js` | Configuration load/save from `storage.local` |
-| `auth.js` | Token management, auto-refresh, OAuth2 bridge |
+| `auth.js` | Token store, OWA-tab login, session token capture |
 | `owa.js` | OWA `service.svc` client (calendar + contacts operations) |
 | `vcard.js` | vCard 4.0 parse/format + OWA ID mapping |
 | `jcal.js` | jCal (iCalendar JSON) parse/format, UTC timezone handling |
 | `contacts.js` | Contacts sync (pull/push/listen) |
 | `calendar.js` | Calendar sync (pull/push via provider experiment) |
 | `options_ui/` | Settings page (HTML + JS + bundled particles.js) |
-| `experiments/oauth/` | Experiment API: bridge to Thunderbird's OAuth2 token store |
-| `experiments/calendar/` | Experiment APIs: un-landed calendar WebExtension API |
+| `experiments/calendar/` | Experiment APIs: un-landed calendar WebExtension API (unmodified upstream drafts) |
 
 ## License
 
