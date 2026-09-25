@@ -153,7 +153,7 @@ async function waitForHarvest(baselineAgeMs, timeoutMs) {
   return false;
 }
 
-// Renew the token invisibly: load OWA in the hidden frame so its session mints a fresh token.
+// Renew the token in the background: load OWA in the hidden frame so its session mints a fresh token.
 async function renewTokenHidden() {
   // never overlap two renewals
   if (_renewalActive) return { ok: false, reason: "renewal already running" };
