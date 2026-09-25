@@ -244,6 +244,9 @@ browser.runtime.onMessage.addListener((msg) => {
       case "m365-owa-bookmarklet":
         // return the token-capture bookmarklet URL
         return { url: Auth.bookmarklet() };
+      case "m365-owa-debug-renew":
+        // force a hidden background renewal on demand (Diagnostics button)
+        return { ok: await renewTokenHidden() };
       case "m365-owa-sync-contacts":
         // trigger a manual contacts sync
         await ContactsSync.sync();
