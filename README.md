@@ -19,9 +19,9 @@ account, and no manual token handling required.
 - **Contacts sync** — pull contacts into a Thunderbird address book and
   push contact changes back to OWA.
 - **Automatic token refresh** — captures fresh tokens from your OWA
-  session and reloads the OWA tab before the token expires, reopening
-  it silently in the background when closed. No manual token capture
-  is required in normal operation.
+  session and renews them invisibly in a hidden background frame before
+  they expire. No open tab and no manual token capture are required in
+  normal operation.
 - **Auto-fetched folder names** — calendar and contacts folder display
   names are retrieved from OWA at startup.
 
