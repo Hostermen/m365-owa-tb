@@ -33,6 +33,12 @@ any server other than Microsoft's (which already holds this data), and does
 - **Login page interaction** — you type your credentials directly into
   Microsoft's Outlook on the web page. The addon never sees, touches, or
   stores your password.
+- **Cookies** — logging in to OWA stores Microsoft's own session cookies
+  in Thunderbird (as any OWA login does). The addon installs no cookies
+  of its own. Cookies are required for the addon to function: connecting
+  (clicking Connect) is the explicit opt-in, and Disconnect clears the
+  token. To remove the session cookies, log out of OWA or clear
+  Thunderbird's cookies.
 - **Addon settings** — sync range and connection name are stored in
   `browser.storage.local`.
 
