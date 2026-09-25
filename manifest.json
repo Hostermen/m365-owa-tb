@@ -2,8 +2,8 @@
   "manifest_version": 2,
   "name": "M365 OWA Sync (Contacts + Calendar)",
   "author": "luk27094",
-  "description": "Sync Microsoft 365 calendar and contacts with Thunderbird via Outlook on the web (OWA) service endpoints, reusing Thunderbird's built-in OAuth2 for token refresh. No Azure app registration required.",
-  "version": "1.0.0",
+  "description": "Sync Microsoft 365 calendar and contacts with Thunderbird via Outlook on the web (OWA) service endpoints. Log in to OWA once through the addon; tokens are captured from your own OWA session and refreshed automatically. No Azure app registration required.",
+  "version": "1.1.0",
   "browser_specific_settings": {
     "gecko": {
       "id": "m365-owa@luk27094.local",
@@ -23,6 +23,9 @@
   "permissions": [
     "storage",
     "addressBooks",
+    "tabs",
+    "webRequest",
+    "alarms",
     "https://outlook.office.com/*",
     "https://outlook.office365.com/*",
     "https://outlook.cloud.microsoft/*",
@@ -67,14 +70,6 @@
   },
 
   "experiment_apis": {
-    "oauth": {
-      "schema": "experiments/oauth/schema/oauth.json",
-      "parent": {
-        "scopes": ["addon_parent"],
-        "script": "experiments/oauth/parent/ext-oauth.js",
-        "paths": [["oauth"]]
-      }
-    },
     "calendar_calendars": {
       "schema": "experiments/calendar/schema/calendar-calendars.json",
       "parent": {

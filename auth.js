@@ -4,29 +4,21 @@ var Auth = {
   _token: null,
   // set true when OWA rejects with 401/403
   _expired: false,
-  // setInterval handle for periodic OAuth2 refresh
-  _refreshTimer: null,
-  // whether automatic OAuth2 refresh is active
-  _autoRefreshEnabled: false,
-  // OAuth2 host (empty string = auto-detect)
-  _oauthHostname: null,
-  // account email used for OAuth2 refresh
-  _oauthUsername: null,
+  // ms epoch when the current token was captured or pasted
+  _capturedAt: 0,
+  // id of the OWA content tab used for login and refresh (memory only)
+  _owaTabId: null,
+  // treat stored tokens older than this as stale (OWA bearer tokens live ~60 min)
+  _maxTokenAgeMs: 55 * 60 * 1000,
 
   // storage key for the token
   _key() { return "m365_owa_token_" + (CONFIG.CONNECTION_NAME || "default"); },
   // storage key for the expired flag
   _expKey() { return "m365_owa_expired_" + (CONFIG.CONNECTION_NAME || "default"); },
-  // storage key for the auto-refresh toggle
-  _autoKey() { return "m365_owa_auto_refresh"; },
-  // storage key for the OAuth2 hostname
-  _oauthHostKey() { return "m365_owa_oauth_host"; },
-  // storage key for the OAuth2 username
-  _oauthUserKey() { return "m365_owa_oauth_user"; },
-  // storage key for the OAuth2 account type
-  _oauthTypeKey() { return "m365_owa_oauth_type"; },
+  // storage key for the capture timestamp
+  _tsKey() { return "m365_owa_captured_" + (CONFIG.CONNECTION_NAME || "default"); },
 
-  // Restore token, expired flag, and auto-refresh settings from storage.local into memory.
+  // Restore token, expired flag, and capture timestamp from storage.local into memory.
   async loadStoredToken() {
     // resolve the token storage key
     const k = this._key();
@@ -36,29 +28,33 @@ var Auth = {
     const ek = this._expKey();
     // read the persisted expired flag
     const { [ek]: exp } = await browser.storage.local.get(ek);
+    // resolve the timestamp storage key
+    const tk = this._tsKey();
+    // read the persisted capture timestamp
+    const { [tk]: ts } = await browser.storage.local.get(tk);
     // restore token into memory (or null)
     this._token = tok || null;
     // restore expired flag as boolean
     this._expired = !!exp;
-
-    // batch-read all auto-refresh settings
-    const cfg = await browser.storage.local.get([
-      this._autoKey(), this._oauthHostKey(),
-      this._oauthUserKey(), this._oauthTypeKey()
-    ]);
-    // restore auto-refresh toggle
-    this._autoRefreshEnabled = !!cfg[this._autoKey()];
-    // restore OAuth2 hostname
-    this._oauthHostname = cfg[this._oauthHostKey()] || null;
-    // restore OAuth2 username
-    this._oauthUsername = cfg[this._oauthUserKey()] || null;
-    // restore account type (default EWS)
-    this._oauthType = cfg[this._oauthTypeKey()] || "ews";
-
-    // start periodic refresh if it was enabled
-    if (this._autoRefreshEnabled) {
-      this._startRefreshTimer();
+    // restore capture timestamp (or zero)
+    this._capturedAt = ts || 0;
+    // flag tokens older than the max age as expired so they get renewed
+    if (this._token && (Date.now() - this._capturedAt) > this._maxTokenAgeMs) {
+      // mark stale in memory
+      this._expired = true;
+      // persist the stale flag
+      await browser.storage.local.set({ [this._expKey()]: true });
     }
+  },
+
+  // Extract a bare token from an Authorization header value ("Bearer xxx"); returns null if absent.
+  _fromHeader(value) {
+    // ignore missing values
+    if (!value) return null;
+    // match the "Bearer xxx" form
+    const m = String(value).match(/Bearer\s+([A-Za-z0-9._\-~+/=]+)/i);
+    // return the bare token or null
+    return m ? m[1] : null;
   },
 
   // Accept a raw bearer string (or "Bearer xxx" / JSON envelope), persist it, and clear the expired flag.
@@ -79,152 +75,93 @@ var Auth = {
     this._token = tok;
     // mark it as valid
     this._expired = false;
-    // persist token and clear expired flag
-    await browser.storage.local.set({ [this._key()]: tok, [this._expKey()]: false });
+    // record the capture time
+    this._capturedAt = Date.now();
+    // persist token, timestamp, and clear expired flag
+    await browser.storage.local.set({ [this._key()]: tok, [this._expKey()]: false, [this._tsKey()]: this._capturedAt });
     console.log("[M365OWA] token stored for connection", CONFIG.CONNECTION_NAME);
-    // (re)start the refresh timer if enabled
-    if (this._autoRefreshEnabled) this._startRefreshTimer();
   },
 
-  // Clear the token and expired flag from memory and storage, and stop the refresh timer.
+  // Store a token harvested from an OWA request header; returns true when it became the active token.
+  async harvestFromHeader(value) {
+    // extract the bare token
+    const tok = this._fromHeader(value);
+    // ignore values without a token
+    if (!tok) return false;
+    // skip tokens that are already active
+    if (tok === this._token) {
+      // refresh the last-seen timestamp anyway
+      this._capturedAt = Date.now();
+      // persist the refreshed timestamp
+      await browser.storage.local.set({ [this._tsKey()]: this._capturedAt });
+      // report that a valid token was seen
+      return true;
+    }
+    // store the new token in memory
+    this._token = tok;
+    // mark it as valid
+    this._expired = false;
+    // record the capture time
+    this._capturedAt = Date.now();
+    // persist token, timestamp, and clear expired flag
+    await browser.storage.local.set({ [this._key()]: tok, [this._expKey()]: false, [this._tsKey()]: this._capturedAt });
+    console.log("[M365OWA] harvested fresh token from OWA session (len=" + tok.length + ")");
+    // report that the active token changed
+    return true;
+  },
+
+  // Clear the token and expired flag from memory and storage.
   async logout() {
     // clear the in-memory token
     this._token = null;
     // reset the expired flag
     this._expired = false;
-    // stop any pending refresh timer
-    this._stopRefreshTimer();
-    // delete token and expired flag from storage
-    await browser.storage.local.remove([this._key(), this._expKey()]);
+    // reset the capture timestamp
+    this._capturedAt = 0;
+    // forget the OWA tab
+    this._owaTabId = null;
+    // delete token, flag, and timestamp from storage
+    await browser.storage.local.remove([this._key(), this._expKey(), this._tsKey()]);
   },
 
-  // Enable/disable automatic token refresh via Thunderbird's OAuth2 module; persists the config and attempts an immediate refresh when enabled.
-  async configureAutoRefresh(hostname, username, accountType) {
-    // store the OAuth2 hostname
-    this._oauthHostname = hostname || null;
-    // store the OAuth2 username
-    this._oauthUsername = username || null;
-    // store the account type (default EWS)
-    this._oauthType = accountType || "ews";
-    // enable auto-refresh only when a username is present
-    this._autoRefreshEnabled = !!this._oauthUsername;
-    // persist all auto-refresh settings
-    await browser.storage.local.set({
-      [this._autoKey()]: this._autoRefreshEnabled,
-      [this._oauthHostKey()]: hostname || "",
-      [this._oauthUserKey()]: username || "",
-      [this._oauthTypeKey()]: this._oauthType,
-    });
-    // when enabled, start timer and attempt an immediate refresh
-    if (this._autoRefreshEnabled) {
-      console.log("[M365OWA] auto-refresh configured for", username, hostname ? "at " + hostname : "(auto-detect)");
-      this._startRefreshTimer();
-      await this._tryAutoRefresh();
-    } else {
-      // when disabled, stop the timer
-      this._stopRefreshTimer();
-      console.log("[M365OWA] auto-refresh disabled");
-    }
-  },
-
-  // Clear the pending refresh interval if one is running.
-  _stopRefreshTimer() {
-    // if a timer is running
-    if (this._refreshTimer) {
-      // cancel it
-      clearTimeout(this._refreshTimer);
-      // clear the handle
-      this._refreshTimer = null;
-    }
-  },
-
-  // Start (or restart) the 5-minute interval that triggers periodic OAuth2 token refresh.
-  _startRefreshTimer() {
-    // clear any existing timer first
-    this._stopRefreshTimer();
-    // schedule a refresh check every 5 minutes
-    this._refreshTimer = setInterval(() => {
-      this._tryAutoRefresh().catch(e => console.warn("[M365OWA] auto-refresh timer error:", e.message || e));
-    }, 5 * 60 * 1000);
-    console.log("[M365OWA] auto-refresh timer started (every 5 min)");
-  },
-
-  // Request a fresh access token from Thunderbird's OAuth2 module; on success, store and persist it. Returns true if a token was obtained.
-  async _tryAutoRefresh() {
-    // bail out if not configured
-    if (!this._autoRefreshEnabled || !this._oauthUsername) return false;
-    try {
-      console.log("[M365OWA] auto-refresh: requesting token from TB OAuth2 for", this._oauthUsername);
-      // ask Thunderbird's OAuth2 module for a fresh token
-      const result = await messenger.oauth.getAccessToken(
-        this._oauthHostname || "",
-        this._oauthUsername,
-        this._oauthType || "ews"
-      );
-      // if a token was returned
-      if (result && result.accessToken) {
-        // store it in memory
-        this._token = result.accessToken;
-        // mark as valid
-        this._expired = false;
-        // persist token and clear expired flag
-        await browser.storage.local.set({ [this._key()]: result.accessToken, [this._expKey()]: false });
-        console.log("[M365OWA] auto-refresh: got fresh token (len=" + result.accessToken.length + ")");
-        return true;
-      }
-      console.warn("[M365OWA] auto-refresh: no token returned");
-      return false;
-    } catch (e) {
-      console.warn("[M365OWA] auto-refresh failed:", e.message || e);
-      return false;
-    }
-  },
-
-  // Return the current token, refreshing it if expired and auto-refresh is enabled; throws if no token or refresh fails.
+  // Return the current token, throwing if none exists or it is flagged expired.
   async getTokenAsync() {
     // error if no token at all
-    if (!this._token) throw new Error("No OWA token. Capture one (options page > Generate bookmarklet) or enable auto-refresh.");
-    // if the token was marked expired
-    if (this._expired) {
-      // try auto-refresh first
-      if (this._autoRefreshEnabled) {
-        const ok = await this._tryAutoRefresh();
-        if (!ok) throw new Error("OWA token expired and auto-refresh failed. Re-capture it or reconfigure auto-refresh.");
-      } else {
-        // otherwise tell the user to re-capture
-        throw new Error("OWA token expired/rejected (401). Re-capture it from Outlook on the web.");
-      }
-    }
-    // return the (possibly refreshed) token
-    return this._token;
-  },
-
-  // Synchronous token accessor; throws if no token or expired (no auto-refresh attempt here).
-  getToken() {
-    // error if no token
-    if (!this._token) throw new Error("No OWA token. Capture one (options page > Generate bookmarklet) and paste it.");
-    // error if expired
-    if (this._expired) throw new Error("OWA token expired/rejected (401). Re-capture it from Outlook on the web.");
+    if (!this._token) throw new Error("No OWA token. Open the addon options and click Connect to log in to OWA.");
+    // error if the token was marked expired
+    if (this._expired) throw new Error("OWA token expired. Open the addon options and click Connect to renew it.");
     // return the token
     return this._token;
   },
 
-  // Flag the current token as expired and persist it; attempts an immediate refresh if auto-refresh is enabled.
+  // Synchronous token accessor; throws if no token or expired (no renewal attempt here).
+  getToken() {
+    // error if no token
+    if (!this._token) throw new Error("No OWA token. Open the addon options and click Connect to log in to OWA.");
+    // error if expired
+    if (this._expired) throw new Error("OWA token expired. Open the addon options and click Connect to renew it.");
+    // return the token
+    return this._token;
+  },
+
+  // Flag the current token as expired and persist it.
   async markExpired() {
     // flag the current token as expired
     this._expired = true;
     // persist the expired flag
     await browser.storage.local.set({ [this._expKey()]: true });
-    // if auto-refresh is on, try to recover immediately
-    if (this._autoRefreshEnabled) {
-      const ok = await this._tryAutoRefresh();
-      // clear the flag if a fresh token was obtained
-      if (ok) this._expired = false;
-    }
   },
 
   // Return true only when a token exists and is not flagged expired.
   isAuthenticated() { return !!this._token && !this._expired; },
+
+  // Return the ms age of the current token (now minus capture time), or Infinity when unknown.
+  tokenAgeMs() {
+    // unknown when no capture timestamp exists
+    if (!this._capturedAt) return Infinity;
+    // return elapsed ms
+    return Date.now() - this._capturedAt;
+  },
 
   // Parse the JWT exp claim from the stored token; returns ms-epoch or null if not a parseable JWT.
   getTokenExpiry() {
@@ -245,10 +182,90 @@ var Auth = {
     }
   },
 
-  // Return whether automatic token refresh is active.
-  isAutoRefreshEnabled() { return this._autoRefreshEnabled; },
-  // Return a snapshot of the current OAuth2 config (hostname + username).
-  getOAuthConfig() { return { hostname: this._oauthHostname || "(auto-detect)", username: this._oauthUsername }; },
+  // Build the OWA login URL from the configured host.
+  owaLoginUrl() {
+    // read the configured host (fall back to outlook default)
+    const host = (CONFIG && CONFIG.OWA_HOST) || "https://outlook.office.com";
+    // strip any trailing slashes
+    const base = host.replace(/\/+$/, "");
+    // return the OWA root URL
+    return base + "/owa/";
+  },
+
+  // Return the tracked OWA tab id, verifying the tab still exists.
+  async _liveOwaTabId() {
+    // nothing tracked means no tab
+    if (this._owaTabId == null) return null;
+    try {
+      // query the tracked tab
+      await browser.tabs.get(this._owaTabId);
+      // still alive, return it
+      return this._owaTabId;
+    } catch {
+      // tab is gone, forget it
+      this._owaTabId = null;
+      // report no tab
+      return null;
+    }
+  },
+
+  // Open the OWA login page in a Thunderbird content tab (reusing the existing one) and return its id.
+  async ensureOwaTab() {
+    // check the tracked tab first
+    const live = await this._liveOwaTabId();
+    // reuse it when alive
+    if (live != null) {
+      // bring it to front
+      await browser.tabs.update(live, { active: true });
+      // return the reused id
+      return live;
+    }
+    // build the OWA login URL
+    const url = this.owaLoginUrl();
+    // scan open tabs for an OWA tab to adopt
+    const tabs = await browser.tabs.query({ url: ["https://outlook.office.com/owa/*", "https://outlook.office365.com/owa/*", "https://outlook.cloud.microsoft/owa/*"] });
+    // adopt the first match when found
+    if (tabs && tabs.length > 0) {
+      // remember the adopted tab
+      this._owaTabId = tabs[0].id;
+      // bring it to front
+      await browser.tabs.update(this._owaTabId, { active: true });
+      // return the adopted id
+      return this._owaTabId;
+    }
+    // create a fresh OWA content tab
+    const created = await browser.tabs.create({ url, active: true });
+    // remember the new tab
+    this._owaTabId = created.id;
+    console.log("[M365OWA] opened OWA login tab", this._owaTabId);
+    // return the new id
+    return this._owaTabId;
+  },
+
+  // Reload the OWA tab so OWA mints a fresh token that gets harvested; returns true when reloaded.
+  async reloadOwaTab() {
+    // check the tracked tab first
+    const live = await this._liveOwaTabId();
+    // bail out when no OWA tab is open
+    if (live == null) return false;
+    // reload it without activating
+    await browser.tabs.reload(live);
+    console.log("[M365OWA] reloaded OWA tab to renew token");
+    // report success
+    return true;
+  },
+
+  // Close the tracked OWA tab if it still exists.
+  async closeOwaTab() {
+    // check the tracked tab first
+    const live = await this._liveOwaTabId();
+    // forget the id either way
+    this._owaTabId = null;
+    // close it when alive
+    if (live != null) {
+      try { await browser.tabs.remove(live); } catch {}
+    }
+  },
 
   // Generate a javascript: URL bookmarklet that intercepts OWA's Authorization header and exposes the bearer token to the user.
   bookmarklet() {
