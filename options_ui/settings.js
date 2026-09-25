@@ -36,7 +36,8 @@ function updateConnectBadge(status) {
     return;
   }
   if (status.authenticated) {
-    const ageMin = Math.floor((status.tokenAgeSec || 0) / 60);
+    const age = status.tokenAgeSec;
+    const ageMin = (typeof age === "number" && isFinite(age)) ? Math.floor(age / 60) : "?";
     el.replaceChildren(badge("ok", "Connected ✓ (token " + ageMin + " min old)"));
   } else if (status.owaTabOpen) {
     el.replaceChildren(badge("off", "Waiting for OWA login — complete it in the opened tab"));
