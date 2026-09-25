@@ -11,6 +11,16 @@ function setErr(msg, cls) {
   el.className = cls || "ok";
 }
 
+function badge(cls, text) {
+  const span = document.createElement("span");
+  span.className = "status-badge " + cls;
+  const dot = document.createElement("span");
+  dot.className = "dot";
+  span.appendChild(dot);
+  span.appendChild(document.createTextNode(text));
+  return span;
+}
+
 async function refreshStatus() {
   try {
     return await send({ type: "m365-owa-status" });
@@ -28,9 +38,9 @@ function updateAutoRefreshBadge(status) {
   if (status.autoRefresh) {
     const cfg = status.oauthConfig || {};
     const user = cfg.username || "?";
-    el.innerHTML = `<span class="status-badge ok"><span class="dot"></span>Auto-refresh active for ${user}</span>`;
+    el.replaceChildren(badge("ok", "Auto-refresh active for " + user));
   } else {
-    el.innerHTML = `<span class="status-badge off"><span class="dot"></span>Auto-refresh disabled — select an account to enable</span>`;
+    el.replaceChildren(badge("off", "Auto-refresh disabled — select an account to enable"));
   }
 }
 
@@ -96,7 +106,11 @@ async function loadAccounts() {
       }
     }
   } catch (e) {
-    $("oauthAccountSelect").innerHTML = '<option value="">Error: ' + (e.message || e) + '</option>';
+    const sel = $("oauthAccountSelect");
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "Error: " + (e.message || e);
+    sel.replaceChildren(opt);
   }
 }
 
