@@ -33,7 +33,7 @@ manual credential management.
 ## Installation
 
 1. Download the latest `m365-owa-tb.xpi` from the
-   [releases](../../releases) page (or build it — see below).
+   [releases](./releases) page (or build it — see below).
 2. In Thunderbird: **Add-ons & Themes → gear menu → Install Add-on From
    File…** → select the `.xpi`.
 3. Open the addon settings, select your M365 account from the dropdown,
@@ -42,17 +42,18 @@ manual credential management.
 
 ## Build
 
-The addon is plain JavaScript with no build step.
+The addon is plain JavaScript with no build step. Use
+[web-ext](https://extensionworkshop.com/documentation/develop/getting-started-with-web-ext/)
+(Mozilla's official tool):
 
 ```sh
 git clone <repo-url> m365-owa-tb
 cd m365-owa-tb
-rm -f m365-owa-tb.xpi
-find . -type f -not -path "./.git/*" -not -name "*.xpi" -not -name ".DS_Store" \
-  -print0 | sort -z | xargs -0 zip m365-owa-tb.xpi > /dev/null
+npx web-ext build --overwrite-dest -a .
 ```
 
-Install the resulting `m365-owa-tb.xpi` in Thunderbird.
+This produces `m365_owa_sync_contacts_calendar_-<version>.zip`.
+Rename it to `m365-owa-tb.xpi` and install in Thunderbird.
 
 ## How it works
 
