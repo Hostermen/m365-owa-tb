@@ -87,13 +87,13 @@ browser.tabs.onRemoved.addListener((tabId) => {
   if (Auth._owaTabId === tabId) Auth._owaTabId = null;
 });
 
-// OWA page URLs loaded into the hidden renewal frame.
+// OWA page URLs loaded into the hidden renewal frame (host-wide: OWA redirects across /owa/, /mail/, /calendar/).
 function owaPageUrls() {
   // return one match pattern per first-party OWA host
   return [
-    "https://outlook.office.com/owa/*",
-    "https://outlook.office365.com/owa/*",
-    "https://outlook.cloud.microsoft/owa/*",
+    "https://outlook.office.com/*",
+    "https://outlook.office365.com/*",
+    "https://outlook.cloud.microsoft/*",
   ];
 }
 
@@ -108,8 +108,8 @@ let _renewalSawServiceCall = false;
 function stripFrameHeaders(details) {
   // note that an OWA frame response was seen
   _renewalSawFrameResponse = true;
-  // log the allowed URL for diagnostics
-  console.log("[M365OWA] renewal: framing allowed for", details.url);
+  // track whether any framing header was actually removed
+  let changed = false;
   // collect the headers to keep
   const kept = [];
   // scan all response headers
@@ -117,11 +117,13 @@ function stripFrameHeaders(details) {
     // normalise the header name
     const name = (h.name || "").toLowerCase();
     // drop clickjacking headers so the hidden frame may load OWA
-    if (name === "x-frame-options" || name === "frame-options") continue;
+    if (name === "x-frame-options" || name === "frame-options") { changed = true; continue; }
     // rewrite CSP without the frame-ancestors directive
     if (name === "content-security-policy") {
       // split, drop frame-ancestors, rejoin
       const v = String(h.value || "").split(";").map((s) => s.trim()).filter((s) => s && !/^frame-ancestors/i.test(s)).join("; ");
+      // note when the directive was present
+      if (v !== String(h.value || "")) changed = true;
       // keep the rewritten policy when non-empty
       if (v) kept.push({ name: h.name, value: v });
       // skip the original header
@@ -130,6 +132,8 @@ function stripFrameHeaders(details) {
     // keep everything else untouched
     kept.push({ name: h.name, value: h.value });
   }
+  // log whether framing headers were stripped for diagnostics
+  console.log("[M365OWA] renewal: framing " + (changed ? "stripped for " : "absent on ") + details.url);
   // return the filtered headers
   return { responseHeaders: kept };
 }
