@@ -38,12 +38,27 @@ var Auth = {
     this._expired = !!exp;
     // restore capture timestamp (or zero)
     this._capturedAt = ts || 0;
-    // flag tokens older than the max age as expired so they get renewed
-    if (this._token && (Date.now() - this._capturedAt) > this._maxTokenAgeMs) {
-      // mark stale in memory
-      this._expired = true;
-      // persist the stale flag
-      await browser.storage.local.set({ [this._expKey()]: true });
+    // decide whether the stored token is still usable on startup:
+    // prefer the JWT exp claim (authoritative) when the token is a JWT;
+    // fall back to the 55-minute age heuristic for non-JWT tokens.
+    if (this._token) {
+      // try to read the JWT exp (ms epoch) — null for non-JWT tokens
+      const jwtExp = this.getTokenExpiry();
+      // a token is expired if the JWT exp has passed, or (no JWT) the age heuristic trips
+      const stale = (jwtExp != null)
+        ? jwtExp <= Date.now()
+        : (Date.now() - this._capturedAt) > this._maxTokenAgeMs;
+      // apply the stale flag in memory and storage
+      if (stale) {
+        // mark stale in memory
+        this._expired = true;
+        // persist the stale flag
+        await browser.storage.local.set({ [this._expKey()]: true });
+      } else if (this._expired) {
+        // stored flag said expired but the token is actually still valid — clear it
+        this._expired = false;
+        await browser.storage.local.set({ [this._expKey()]: false });
+      }
     }
   },
 

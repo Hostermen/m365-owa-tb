@@ -5,10 +5,13 @@
 Bidirectional synchronisation of Microsoft 365 contacts and calendar
 with Thunderbird, using Outlook on the web (OWA) service endpoints.
 
-Click **Connect** in the addon settings to open Outlook on the web in a
-Thunderbird tab and log in with your M365 account. The addon captures
-the session token from your own OWA traffic automatically and renews it
-before it expires.
+Click **Connect** once in the addon settings to open Outlook on the web in
+a Thunderbird tab and log in with your M365 account. The addon captures
+the session token from your own OWA traffic and stores it in
+`browser.storage.local`. The token survives Thunderbird restarts, computer
+reboots, and crashes, and is renewed automatically before it expires —
+you never need to click Connect again (unless you explicitly Disconnect
+or your Microsoft session itself expires).
 
 ## Features
 
@@ -17,9 +20,13 @@ before it expires.
   Timezone-safe (UTC-normalised).
 - **Contacts sync** — pull contacts into a Thunderbird address book and
   push contact changes back to OWA.
-- **Automatic token refresh** — captures fresh tokens from your OWA
-  session and renews them in a hidden background frame before
-  they expire.
+- **Persistent, self-renewing token** — the captured token is persisted to
+  `browser.storage.local` and restored on every startup. When it expires,
+  the addon renews it automatically via a hidden background OWA frame;
+  if that fails (e.g. after a cold boot) it falls back to opening a
+  background OWA tab using your stored session cookies, and retries with
+  exponential backoff until a fresh token is captured. No user action is
+  required after the initial Connect.
 - **Auto-fetched folder names** — calendar and contacts folder display
   names are retrieved from OWA at startup.
 
@@ -37,6 +44,8 @@ before it expires.
 3. Open the addon settings and click **Connect** — Outlook on the web
    opens in a Thunderbird tab. Log in with your M365 account; the
    settings page shows "Connected ✓" once the token is captured.
+   This is the only time you need to click Connect; the addon reconnects
+   automatically on every subsequent startup.
 4. Click **Sync now** to pull your contacts and calendar.
 
 ## Build
@@ -59,7 +68,7 @@ Rename it to `m365-owa-tb.xpi` and install in Thunderbird.
 | File | Role |
 |---|---|
 | `manifest.json` | WebExtension manifest (MV2) + experiment API declarations |
-| `background.js` | Lifecycle, message router, sync orchestration |
+| `background.js` | Lifecycle, message router, sync orchestration, token renewal (hidden frame + background tab fallback + backoff retry) |
 | `config.js` | Configuration load/save from `storage.local` |
 | `auth.js` | Token store, OWA-tab login, session token capture |
 | `owa.js` | OWA `service.svc` client (calendar + contacts operations) |

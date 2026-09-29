@@ -17,7 +17,7 @@
   }
   // initialise the calendar sync provider (self-bootstraps on first pull)
   CalendarSync.init();
-  // opportunistically renew a stale token left over from a previous session
+  // opportunistically renew an expired/stale token left over from a previous session (cold-boot recovery)
   maybeRenew().catch((e) => console.warn("[M365OWA] startup renewal failed:", e.message || e));
 })();
 
@@ -54,6 +54,8 @@ function registerHarvester() {
           const wasAuth = Auth.isAuthenticated();
           // store the harvested token (fire-and-forget promise)
           Auth.harvestFromHeader(h.value).then((ok) => {
+            // a fresh token was captured — cancel any pending renewal retry
+            if (ok) _clearRenewRetry();
             // bootstrap sync on the login transition only
             if (ok && !wasAuth && Auth.isAuthenticated()) onFirstHarvest();
           }).catch((e) => console.warn("[M365OWA] harvest failed:", e.message || e));
@@ -103,6 +105,10 @@ let _renewalActive = false;
 let _renewalSawFrameResponse = false;
 // Set when an OWA service call is observed during renewal.
 let _renewalSawServiceCall = false;
+// Handle of the pending renewal-retry setTimeout (null when none scheduled).
+let _renewRetryTimer = null;
+// Index into the renewal-retry backoff sequence for the current retry run.
+let _renewRetryIndex = 0;
 
 // Strip framing protections from OWA responses while a hidden renewal runs (registered temporarily).
 function stripFrameHeaders(details) {
@@ -201,17 +207,97 @@ async function renewTokenHidden() {
   }
 }
 
-// Renew once a token exists and is older than 30 minutes (even when flagged expired).
-async function maybeRenew() {
-  // skip when no token was ever captured
-  if (!Auth._token) return;
-  // skip fresh tokens
-  if (Auth.tokenAgeMs() <= 30 * 60 * 1000) return;
-  // run the hidden renewal; the harvester picks up the fresh token
-  await renewTokenHidden();
+// Renew the token by opening OWA in a real (background) tab; more reliable than the hidden iframe on cold boot.
+async function renewTokenViaTab() {
+  // never overlap two renewals
+  if (_renewalActive) return { ok: false, reason: "renewal already running" };
+  // never act without a previously captured token (i.e. user never connected)
+  if (!Auth._token) return { ok: false, reason: "no token stored" };
+  // mark the renewal as running
+  _renewalActive = true;
+  // remember the tab we open so it can be closed in finally
+  let tabId = null;
+  try {
+    // record the current token age as the harvest baseline
+    const baseline = Auth.tokenAgeMs();
+    // open OWA in a background tab (active:false) using the stored session cookies
+    const tab = await browser.tabs.create({ url: Auth.owaLoginUrl(), active: false });
+    // remember the tab id for the onRemoved listener and cleanup
+    tabId = tab.id;
+    Auth._owaTabId = tabId;
+    console.log("[M365OWA] tab renewal started, tab", tabId);
+    // wait up to 90 seconds for the harvester to capture a fresh token
+    const ok = await waitForHarvest(baseline, 90000);
+    // diagnose the outcome
+    const reason = ok ? "renewed" : "no token harvested from OWA tab (session cookies expired?)";
+    // log the outcome
+    console.log("[M365OWA] tab renewal " + (ok ? "succeeded" : "timed out: " + reason));
+    // report the outcome
+    return { ok, reason };
+  } finally {
+    // close the renewal tab if it is still open
+    if (tabId != null) {
+      try { await browser.tabs.remove(tabId); } catch {}
+      // clear the tracked tab id when it was ours
+      if (Auth._owaTabId === tabId) Auth._owaTabId = null;
+    }
+    // mark the renewal as finished
+    _renewalActive = false;
+  }
 }
 
-// Renew the token before it goes stale via the hidden renewal frame.
+// True while a retry-with-backoff loop is scheduled (prevents overlapping retry timers).
+// (_renewRetryTimer / _renewRetryIndex are declared with the other module-level state above.)
+
+// Renew the token when it is missing, flagged expired, or older than 30 minutes.
+// Tries the non-intrusive hidden iframe first, falls back to a background OWA tab,
+// and on failure schedules a backoff retry so a flaky cold-boot network still recovers.
+async function maybeRenew() {
+  // skip when no token was ever captured (user never connected)
+  if (!Auth._token) return;
+  // skip fresh, valid tokens — nothing to do
+  if (!Auth._expired && Auth.tokenAgeMs() <= 30 * 60 * 1000) return;
+
+  // try the non-intrusive hidden iframe first (works when the network is warm)
+  let r = await renewTokenHidden();
+  if (r.ok) { _clearRenewRetry(); return; }
+
+  // fall back to a real OWA tab when the hidden iframe fails (e.g. cold boot)
+  console.log("[M365OWA] hidden renewal failed (" + r.reason + "), falling back to OWA tab");
+  r = await renewTokenViaTab();
+  if (r.ok) { _clearRenewRetry(); return; }
+
+  // both renewals failed — schedule a backoff retry so we keep trying automatically
+  _scheduleRenewRetry();
+}
+
+// Schedule a renewal retry with exponential backoff (1, 2, 4, 5 min), capped at 5 minutes.
+function _scheduleRenewRetry() {
+  // cancel any pending retry first
+  _clearRenewRetry();
+  // backoff sequence in ms: 1min, 2min, 4min, then stay at 5min
+  const backoff = [60 * 1000, 2 * 60 * 1000, 4 * 60 * 1000, 5 * 60 * 1000];
+  // pick the delay for this retry from the current index (capped at the last entry)
+  const delay = backoff[Math.min(_renewRetryIndex || 0, backoff.length - 1)];
+  // advance the retry index for the next attempt (capped at the last entry)
+  _renewRetryIndex = Math.min((_renewRetryIndex || 0) + 1, backoff.length - 1);
+  console.log("[M365OWA] renewal failed; retrying in " + (delay / 1000) + "s (attempt " + (_renewRetryIndex + 1) + ")");
+  // schedule the retry
+  _renewRetryTimer = setTimeout(() => {
+    _renewRetryTimer = null;
+    maybeRenew().catch((e) => console.warn("[M365OWA] retry renewal failed:", e.message || e));
+  }, delay);
+}
+
+// Clear any pending renewal retry and reset the retry index.
+function _clearRenewRetry() {
+  // clear the timer when one is pending
+  if (_renewRetryTimer) { clearTimeout(_renewRetryTimer); _renewRetryTimer = null; }
+  // reset the backoff index
+  _renewRetryIndex = 0;
+}
+
+// Periodic renewal alarm: re-check and renew the token every 20 minutes (also catches expiry between retries).
 browser.alarms.onAlarm.addListener(async (alarm) => {
   // only handle our own renewal alarm
   if (!alarm || alarm.name !== "m365-owa-renew") return;
@@ -273,8 +359,8 @@ browser.runtime.onMessage.addListener((msg) => {
         await loadConfig();
         return { ok: true };
       case "m365-owa-debug-renew":
-        // force a hidden background renewal on demand (Diagnostics button)
-        return await renewTokenHidden();
+        // force a background renewal on demand (Diagnostics button): try hidden iframe, then tab fallback
+        { const r = await renewTokenHidden(); if (r.ok) return r; return await renewTokenViaTab(); }
       case "m365-owa-sync-contacts":
         // trigger a manual contacts sync
         await ContactsSync.sync();
