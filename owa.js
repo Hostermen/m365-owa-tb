@@ -651,6 +651,14 @@ var OWA = {
     // ensure it's an array
     if (!Array.isArray(items)) items = [];
     console.log("[M365OWA] FindItem returned", items.length, "contacts. first keys:", items[0] ? Object.keys(items[0]).join(",").slice(0,300) : "(empty)");
+    // log the raw response structure when 0 items returned (diagnoses empty folder vs parse mismatch)
+    if (items.length === 0) {
+      try {
+        const msgs = data.Body && data.Body.ResponseMessages && data.Body.ResponseMessages.Items;
+        const m = Array.isArray(msgs) && msgs[0];
+        console.log("[M365OWA] FindItem 0-result diagnostic. ResponseClass:", m && m.ResponseClass, "ResponseCode:", m && m.ResponseCode, "RootFolder:", m && JSON.stringify(m.RootFolder).slice(0, 300));
+      } catch {}
+    }
     return items;
   },
 

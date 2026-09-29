@@ -36,9 +36,7 @@ function updateConnectBadge(status) {
     return;
   }
   if (status.authenticated) {
-    const age = status.tokenAgeSec;
-    const ageMin = (typeof age === "number" && isFinite(age)) ? Math.floor(age / 60) : "?";
-    el.replaceChildren(badge("ok", "Connected ✓ (token " + ageMin + " min old)"));
+    el.replaceChildren(badge("ok", "Connected ✓"));
   } else if (status.owaTabOpen) {
     el.replaceChildren(badge("off", "Waiting for OWA login — complete it in the opened tab"));
   } else {
@@ -80,6 +78,33 @@ window.addEventListener("DOMContentLoaded", async () => {
   if (s.pullDaysForward) $("pullDaysForward").value = s.pullDaysForward;
 
   await updateConnectButton();
+
+  // auto-refresh the connect badge while the options page is open, so a
+  // background renewal (e.g. after a cold boot) flips the badge to
+  // "Connected" on its own without requiring a button click. Polls every 5s
+  // while not authenticated, stops once connected. Stops after consecutive
+  // failures (e.g. stale options tab after an addon update) to avoid
+  // spamming Conduits errors — reopen the options page to restart polling.
+  let failCount = 0;
+  let badgePoll = setInterval(async () => {
+    const s = await refreshStatus();
+    if (!s) {
+      // sendMessage failed — count and stop after 3 consecutive failures
+      if (++failCount >= 3) {
+        clearInterval(badgePoll);
+        badgePoll = null;
+      }
+      return;
+    }
+    failCount = 0;
+    if (s.authenticated) {
+      await updateConnectButton();
+      clearInterval(badgePoll);
+      badgePoll = null;
+    } else {
+      updateConnectBadge(s);
+    }
+  }, 5000);
 });
 
 async function waitForAuth(timeoutMs) {
