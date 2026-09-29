@@ -4,8 +4,12 @@
   await loadConfig();
   // restore the stored bearer token
   await Auth.loadStoredToken();
+  // restore the stored refresh token (survives reboots, no SSO dependency)
+  await Auth.loadStoredRefreshToken();
   // register the OWA Authorization-header harvester
   registerHarvester();
+  // register the refresh-token harvester on login.microsoftonline.com
+  registerRefreshTokenHarvester();
   // schedule the periodic token-renewal alarm
   await browser.alarms.create("m365-owa-renew", { periodInMinutes: 20 });
   // log the startup auth state and configured host
@@ -70,6 +74,28 @@ function registerHarvester() {
     ["requestHeaders"]
   );
   console.log("[M365OWA] token harvester registered");
+}
+
+// Observe OWA's token endpoint calls and harvest refresh tokens from the POST bodies.
+function registerRefreshTokenHarvester() {
+  // listen for POSTs to the OAuth2 token endpoints on login.microsoftonline.com
+  browser.webRequest.onBeforeRequest.addListener(
+    (details) => {
+      // skip requests without a parsed form body
+      if (!details.requestBody || !details.requestBody.formData) return;
+      // harvest the refresh token + client_id + scope from the form body
+      Auth.harvestRefreshToken(details.requestBody.formData, details.url)
+        .catch((e) => console.warn("[M365OWA] refresh token harvest failed:", e.message || e));
+    },
+    // match the v2.0 and v1.0 token endpoints on login.microsoftonline.com
+    { urls: [
+      "https://login.microsoftonline.com/*/oauth2/v2.0/token",
+      "https://login.microsoftonline.com/*/oauth2/token",
+    ] },
+    // request body visibility (observe only, never block)
+    ["requestBody"]
+  );
+  console.log("[M365OWA] refresh token harvester registered");
 }
 
 // Bootstrap contacts and calendar once, right after the first token harvest of a session.
@@ -163,8 +189,8 @@ async function waitForHarvest(baselineAgeMs, timeoutMs) {
 async function renewTokenHidden() {
   // never overlap two renewals
   if (_renewalActive) return { ok: false, reason: "renewal already running" };
-  // never act without a previously captured token (i.e. user never connected)
-  if (!Auth._token) return { ok: false, reason: "no token stored" };
+  // never act without a previously captured token or refresh token (i.e. user never connected)
+  if (!Auth._token && !Auth.hasRefreshToken()) return { ok: false, reason: "no token stored" };
   // mark the renewal as running
   _renewalActive = true;
   // reset the diagnostic flags
@@ -211,8 +237,8 @@ async function renewTokenHidden() {
 async function renewTokenViaTab() {
   // never overlap two renewals
   if (_renewalActive) return { ok: false, reason: "renewal already running" };
-  // never act without a previously captured token (i.e. user never connected)
-  if (!Auth._token) return { ok: false, reason: "no token stored" };
+  // never act without a previously captured token or refresh token (i.e. user never connected)
+  if (!Auth._token && !Auth.hasRefreshToken()) return { ok: false, reason: "no token stored" };
   // mark the renewal as running
   _renewalActive = true;
   // remember the tab we open so it can be closed in finally
@@ -250,15 +276,23 @@ async function renewTokenViaTab() {
 // (_renewRetryTimer / _renewRetryIndex are declared with the other module-level state above.)
 
 // Renew the token when it is missing, flagged expired, or older than 30 minutes.
-// Tries the non-intrusive hidden iframe first, falls back to a background OWA tab,
-// and on failure schedules a backoff retry so a flaky cold-boot network still recovers.
+// Tries the refresh token first (no SSO, no browser, survives reboots), then the
+// non-intrusive hidden iframe, then a background OWA tab, and on failure schedules
+// a backoff retry so a flaky cold-boot network still recovers.
 async function maybeRenew() {
-  // skip when no token was ever captured (user never connected)
-  if (!Auth._token) return;
+  // skip when no token was ever captured AND no refresh token stored
+  if (!Auth._token && !Auth.hasRefreshToken()) return;
   // skip fresh, valid tokens — nothing to do
-  if (!Auth._expired && Auth.tokenAgeMs() <= 30 * 60 * 1000) return;
+  if (Auth._token && !Auth._expired && Auth.tokenAgeMs() <= 30 * 60 * 1000) return;
 
-  // try the non-intrusive hidden iframe first (works when the network is warm)
+  // try the refresh token first (fastest, no SSO dependency, survives reboots)
+  if (Auth.hasRefreshToken()) {
+    const r = await Auth.refreshViaRefreshToken();
+    if (r.ok) { _clearRenewRetry(); return; }
+    console.log("[M365OWA] refresh token renewal failed (" + r.reason + "), falling back to hidden iframe");
+  }
+
+  // fall back to the non-intrusive hidden iframe (works when the network is warm)
   let r = await renewTokenHidden();
   if (r.ok) { _clearRenewRetry(); return; }
 
@@ -267,7 +301,7 @@ async function maybeRenew() {
   r = await renewTokenViaTab();
   if (r.ok) { _clearRenewRetry(); return; }
 
-  // both renewals failed — schedule a backoff retry so we keep trying automatically
+  // all renewal methods failed — schedule a backoff retry so we keep trying automatically
   _scheduleRenewRetry();
 }
 
@@ -359,7 +393,8 @@ browser.runtime.onMessage.addListener((msg) => {
         await loadConfig();
         return { ok: true };
       case "m365-owa-debug-renew":
-        // force a background renewal on demand (Diagnostics button): try hidden iframe, then tab fallback
+        // force a background renewal on demand (Diagnostics button): try refresh token, then hidden iframe, then tab fallback
+        if (Auth.hasRefreshToken()) { const r = await Auth.refreshViaRefreshToken(); if (r.ok) return r; }
         { const r = await renewTokenHidden(); if (r.ok) return r; return await renewTokenViaTab(); }
       case "m365-owa-sync-contacts":
         // trigger a manual contacts sync
@@ -393,6 +428,7 @@ globalThis.M365OWA = {
       providerCal: CalendarSync.tbCalId,
       tokenAgeSec: Math.floor(Auth.tokenAgeMs() / 1000),
       tokenExpiry: Auth.getTokenExpiry(),
+      hasRefresh: Auth.hasRefreshToken(),
       owaTabOpen: (await Auth._liveOwaTabId()) != null,
     };
   },

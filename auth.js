@@ -11,12 +11,32 @@ var Auth = {
   // treat stored tokens older than this as stale (OWA bearer tokens live ~60 min)
   _maxTokenAgeMs: 55 * 60 * 1000,
 
+  // --- refresh-token harvesting (survives reboots, no SSO dependency) ---
+  // long-lived OAuth2 refresh token harvested from OWA's token endpoint calls (~90 days)
+  _refreshToken: null,
+  // OWA's public client_id used with the refresh token
+  _refreshClientId: null,
+  // full token endpoint URL (e.g. https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token)
+  _refreshUrl: null,
+  // scope string captured from OWA's token endpoint request body
+  _refreshScope: null,
+  // flag: true while we're making our own token refresh fetch (so the webRequest harvester skips us)
+  _selfRefreshActive: false,
+
   // storage key for the token
   _key() { return "m365_owa_token_" + (CONFIG.CONNECTION_NAME || "default"); },
   // storage key for the expired flag
   _expKey() { return "m365_owa_expired_" + (CONFIG.CONNECTION_NAME || "default"); },
   // storage key for the capture timestamp
   _tsKey() { return "m365_owa_captured_" + (CONFIG.CONNECTION_NAME || "default"); },
+  // storage key for the refresh token
+  _rkey() { return "m365_owa_refresh_token_" + (CONFIG.CONNECTION_NAME || "default"); },
+  // storage key for the refresh client_id
+  _rckey() { return "m365_owa_refresh_clientid_" + (CONFIG.CONNECTION_NAME || "default"); },
+  // storage key for the refresh token endpoint URL
+  _rukey() { return "m365_owa_refresh_url_" + (CONFIG.CONNECTION_NAME || "default"); },
+  // storage key for the refresh scope
+  _rskey() { return "m365_owa_refresh_scope_" + (CONFIG.CONNECTION_NAME || "default"); },
 
   // Restore token, expired flag, and capture timestamp from storage.local into memory.
   async loadStoredToken() {
@@ -60,6 +80,33 @@ var Auth = {
         await browser.storage.local.set({ [this._expKey()]: false });
       }
     }
+  },
+
+  // Restore refresh token and related fields from storage.local into memory.
+  async loadStoredRefreshToken() {
+    // resolve the refresh-token storage key
+    const rk = this._rkey();
+    // read the persisted refresh token
+    const { [rk]: rt } = await browser.storage.local.get(rk);
+    // resolve the refresh client_id storage key
+    const rck = this._rckey();
+    // read the persisted client_id
+    const { [rck]: rcid } = await browser.storage.local.get(rck);
+    // resolve the refresh endpoint URL storage key
+    const ru = this._rukey();
+    // read the persisted endpoint URL
+    const { [ru]: rurl } = await browser.storage.local.get(ru);
+    // resolve the refresh scope storage key
+    const rs = this._rskey();
+    // read the persisted scope
+    const { [rs]: rscope } = await browser.storage.local.get(rs);
+    // restore into memory
+    this._refreshToken = rt || null;
+    this._refreshClientId = rcid || null;
+    this._refreshUrl = rurl || null;
+    this._refreshScope = rscope || null;
+    // log when a refresh token was loaded
+    if (this._refreshToken) console.log("[M365OWA] refresh token loaded (client_id=" + (this._refreshClientId || "?").slice(0, 8) + "...)");
   },
 
   // Extract a bare token from an Authorization header value ("Bearer xxx"); returns null if absent.
@@ -135,8 +182,13 @@ var Auth = {
     this._capturedAt = 0;
     // forget the OWA tab
     this._owaTabId = null;
-    // delete token, flag, and timestamp from storage
-    await browser.storage.local.remove([this._key(), this._expKey(), this._tsKey()]);
+    // clear refresh-token fields
+    this._refreshToken = null;
+    this._refreshClientId = null;
+    this._refreshUrl = null;
+    this._refreshScope = null;
+    // delete token, flag, timestamp, and refresh-token data from storage
+    await browser.storage.local.remove([this._key(), this._expKey(), this._tsKey(), this._rkey(), this._rckey(), this._rukey(), this._rskey()]);
   },
 
   // Return the current token, throwing if none exists or it is flagged expired.
@@ -166,6 +218,85 @@ var Auth = {
     // persist the expired flag
     await browser.storage.local.set({ [this._expKey()]: true });
   },
+
+  // Harvest refresh token + client_id + endpoint URL + scope from a token endpoint request body.
+  async harvestRefreshToken(formData, url) {
+    // skip when we're making our own refresh request
+    if (this._selfRefreshActive) return false;
+    // extract refresh_token from form data
+    const rt = formData && formData.refresh_token && formData.refresh_token[0];
+    // ignore requests without a refresh token
+    if (!rt) return false;
+    // extract client_id from form data
+    const cid = (formData.client_id && formData.client_id[0]) || this._refreshClientId;
+    // extract scope from form data
+    const scope = (formData.scope && formData.scope[0]) || this._refreshScope;
+    // store in memory
+    this._refreshToken = rt;
+    this._refreshClientId = cid;
+    this._refreshUrl = url;
+    this._refreshScope = scope;
+    // persist all four fields
+    await browser.storage.local.set({
+      [this._rkey()]: rt,
+      [this._rckey()]: cid,
+      [this._rukey()]: url,
+      [this._rskey()]: scope,
+    });
+    console.log("[M365OWA] harvested refresh token (client_id=" + (cid || "?").slice(0, 8) + "..., url=" + url + ")");
+    // report that a refresh token was captured
+    return true;
+  },
+
+  // Refresh the access token using the stored refresh token; returns { ok, reason }.
+  async refreshViaRefreshToken() {
+    // need all three: refresh token, endpoint URL, and client_id
+    if (!this._refreshToken) return { ok: false, reason: "no refresh token stored" };
+    if (!this._refreshUrl) return { ok: false, reason: "no token endpoint URL stored" };
+    if (!this._refreshClientId) return { ok: false, reason: "no client_id stored" };
+    // mark that we're making our own request so the webRequest harvester skips
+    this._selfRefreshActive = true;
+    try {
+      // build the form body
+      const body = new URLSearchParams();
+      body.set("grant_type", "refresh_token");
+      body.set("client_id", this._refreshClientId);
+      body.set("refresh_token", this._refreshToken);
+      // include scope when captured
+      if (this._refreshScope) body.set("scope", this._refreshScope);
+      // POST to the token endpoint (no cookies, no SSO dependency)
+      const resp = await fetch(this._refreshUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+        credentials: "omit",
+      });
+      // non-200 means the refresh token is likely expired or revoked
+      if (resp.status !== 200) {
+        const txt = await resp.text().catch(() => "");
+        return { ok: false, reason: "token endpoint returned " + resp.status + ": " + txt.slice(0, 200) };
+      }
+      const data = await resp.json();
+      if (!data.access_token) return { ok: false, reason: "no access_token in response" };
+      // store the new access token
+      await this.setToken(data.access_token);
+      // update the refresh token if a new one was returned (rotation)
+      if (data.refresh_token && data.refresh_token !== this._refreshToken) {
+        this._refreshToken = data.refresh_token;
+        await browser.storage.local.set({ [this._rkey()]: data.refresh_token });
+        console.log("[M365OWA] refresh token updated from token endpoint response");
+      }
+      console.log("[M365OWA] access token refreshed via refresh token");
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: (e && e.message) || String(e) };
+    } finally {
+      this._selfRefreshActive = false;
+    }
+  },
+
+  // Return true when a refresh token is stored.
+  hasRefreshToken() { return !!this._refreshToken; },
 
   // Return true only when a token exists and is not flagged expired.
   isAuthenticated() { return !!this._token && !this._expired; },
