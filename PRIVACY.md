@@ -1,6 +1,6 @@
 # Privacy Policy for M365 OWA Sync (Contacts + Calendar)
 
-**Last updated: 2026-09-25**
+**Last updated: 2026-09-29**
 
 ## Summary
 
@@ -21,15 +21,19 @@ any server other than Microsoft's (which already holds this data), and does
   the web in a Thunderbird tab. After you log in, the addon reads the
   `Authorization` bearer token from your own OWA requests (observed via
   the `webRequest` API, never modified) and stores it in
-  `browser.storage.local`. Before the token expires, the addon loads OWA
-  in a hidden background frame (using your stored OWA session) so a
-  fresh token is issued.
-- **Framing protection** — OWA forbids being embedded in other pages. For
-  the duration of a background renewal only (max ~90 seconds), the addon
+  `browser.storage.local`. The token persists across Thunderbird restarts
+  and reboots. When the token expires, the addon renews it automatically:
+  first by loading OWA in a hidden background frame; if that fails (e.g.
+  after a cold boot) by opening a background OWA tab using your stored
+  session cookies.   Both paths reuse your existing OWA session (no new
+  login) and close/release the frame/tab immediately once a fresh token
+  is captured. Failed renewals are retried with exponential backoff.
+- **Framing Protection** — OWA forbids being embedded in other pages. For
+  the duration of a hidden-frame renewal only (max ~90 seconds), the addon
   lifts OWA's `X-Frame-Options` / `frame-ancestors` restrictions for its
-  own hidden frame, then restores them immediately. Nothing else about
-  your OWA traffic is modified — requests are only observed to read the
-  session token.
+  own hidden frame, then restores them immediately. The background-tab
+  fallback does not alter any headers. Nothing else about your OWA traffic
+  is modified — requests are only observed to read the session token.
 - **Login page interaction** — you type your credentials directly into
   Microsoft's Outlook on the web page. The addon never sees, touches, or
   stores your password.
@@ -37,7 +41,9 @@ any server other than Microsoft's (which already holds this data), and does
   in Thunderbird (as any OWA login does). The addon installs no cookies
   of its own. Cookies are required for the addon to function: connecting
   (clicking Connect) is the explicit opt-in, and Disconnect clears the
-  token. To remove the session cookies, log out of OWA or clear
+  token. Persistent session cookies (e.g. `ESTSAUTHPERSISTENT`) allow the
+  addon to silently renew the token after a reboot without asking you to
+  log in again. To remove the session cookies, log out of OWA or clear
   Thunderbird's cookies.
 - **Addon settings** — sync range and connection name are stored in
   `browser.storage.local`.
