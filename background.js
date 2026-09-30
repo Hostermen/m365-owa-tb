@@ -76,26 +76,87 @@ function registerHarvester() {
   console.log("[M365OWA] token harvester registered");
 }
 
-// Observe OWA's token endpoint calls and harvest refresh tokens from the POST bodies.
+// Store request body data (client_id, scope) keyed by requestId for use when the response arrives.
+const _tokenRequestData = new Map();
+
+// Observe OWA's token endpoint calls and harvest refresh tokens from the RESPONSE body.
+// Uses webRequest.filterResponseData to intercept the response (refresh_token is in the
+// response for ALL grant types: authorization_code, refresh_token, etc.).
 function registerRefreshTokenHarvester() {
+  // check whether filterResponseData is available (Thunderbird 57+/Firefox 57+)
+  const useFilter = typeof browser.webRequest.filterResponseData === "function";
   // listen for POSTs to the OAuth2 token endpoints on login.microsoftonline.com
   browser.webRequest.onBeforeRequest.addListener(
     (details) => {
-      // skip requests without a parsed form body
-      if (!details.requestBody || !details.requestBody.formData) return;
-      // harvest the refresh token + client_id + scope from the form body
-      Auth.harvestRefreshToken(details.requestBody.formData, details.url)
-        .catch((e) => console.warn("[M365OWA] refresh token harvest failed:", e.message || e));
+      // skip our own refresh requests
+      if (Auth._selfRefreshActive) return;
+      // capture client_id and scope from the request body for later use with the response
+      let cid = null, scope = null;
+      if (details.requestBody && details.requestBody.formData) {
+        const fd = details.requestBody.formData;
+        cid = (fd.client_id && fd.client_id[0]) || null;
+        scope = (fd.scope && fd.scope[0]) || null;
+      }
+      if (useFilter) {
+        // store request data keyed by requestId so the response handler can use it
+        _tokenRequestData.set(details.requestId, { cid, scope, url: details.url });
+        // create a response filter to intercept the token endpoint response body
+        const filter = browser.webRequest.filterResponseData(details.requestId);
+        const decoder = new TextDecoder("utf-8");
+        let responseText = "";
+        // pass through each chunk unchanged and accumulate the response text
+        filter.ondata = (event) => {
+          filter.write(event.data);
+          responseText += decoder.decode(event.data, { stream: true });
+        };
+        // when the response is complete, parse it and harvest the refresh token
+        filter.onstop = () => {
+          filter.close();
+          const reqData = _tokenRequestData.get(details.requestId) || {};
+          _tokenRequestData.delete(details.requestId);
+          try {
+            const data = JSON.parse(responseText);
+            if (data.refresh_token) {
+              const wasAuth = Auth.isAuthenticated();
+              Auth.harvestFromTokenResponse(
+                data.refresh_token,
+                data.access_token,
+                reqData.cid || null,
+                reqData.url || details.url,
+                reqData.scope || data.scope || null
+              ).then((ok) => {
+                if (ok) {
+                  _clearRenewRetry();
+                  if (!wasAuth && Auth.isAuthenticated()) onFirstHarvest();
+                }
+              }).catch((e) => console.warn("[M365OWA] refresh token harvest (response) failed:", e.message || e));
+            }
+          } catch {}
+        };
+        filter.onerror = () => {
+          try { filter.disconnect(); } catch {}
+          _tokenRequestData.delete(details.requestId);
+        };
+      } else {
+        // fallback: harvest from request body only (refresh_token grant)
+        if (details.requestBody && details.requestBody.formData) {
+          const fd = details.requestBody.formData;
+          if (fd.grant_type && fd.grant_type[0] === "refresh_token" && fd.refresh_token && fd.refresh_token[0]) {
+            Auth.harvestRefreshToken(fd, details.url)
+              .catch((e) => console.warn("[M365OWA] refresh token harvest (request) failed:", e.message || e));
+          }
+        }
+      }
     },
     // match the v2.0 and v1.0 token endpoints on login.microsoftonline.com
     { urls: [
       "https://login.microsoftonline.com/*/oauth2/v2.0/token",
       "https://login.microsoftonline.com/*/oauth2/token",
     ] },
-    // request body visibility (observe only, never block)
-    ["requestBody"]
+    // request body visibility + blocking (required by filterResponseData)
+    useFilter ? ["requestBody", "blocking"] : ["requestBody"]
   );
-  console.log("[M365OWA] refresh token harvester registered");
+  console.log("[M365OWA] refresh token harvester registered (mode: " + (useFilter ? "response-filter" : "request-only") + ")");
 }
 
 // Bootstrap contacts and calendar once, right after the first token harvest of a session.
