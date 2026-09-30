@@ -290,8 +290,16 @@ var Auth = {
       body.set("grant_type", "refresh_token");
       body.set("client_id", this._refreshClientId);
       body.set("refresh_token", this._refreshToken);
-      // include scope when captured
+      body.set("client_info", "1");
+      // include scope when captured (needed for Azure AD to return OWA-scoped tokens)
       if (this._refreshScope) body.set("scope", this._refreshScope);
+      // log the request params (without the token itself) for debugging
+      console.log("[M365OWA] refresh-token renewal: POST " + this._refreshUrl +
+        " client_id=" + (this._refreshClientId || "?").slice(0, 8) + "..." +
+        " scope=" + (this._refreshScope ? this._refreshScope : "(none)") +
+        " token_len=" + (this._refreshToken ? this._refreshToken.length : 0) +
+        " token_start=" + (this._refreshToken ? this._refreshToken.slice(0, 15) : "") +
+        " token_end=" + (this._refreshToken ? this._refreshToken.slice(-15) : ""));
       // POST to the token endpoint (no cookies, no SSO dependency)
       const resp = await fetch(this._refreshUrl, {
         method: "POST",
@@ -302,7 +310,7 @@ var Auth = {
       // non-200 means the refresh token is likely expired or revoked
       if (resp.status !== 200) {
         const txt = await resp.text().catch(() => "");
-        return { ok: false, reason: "token endpoint returned " + resp.status + ": " + txt.slice(0, 200) };
+        return { ok: false, reason: "token endpoint returned " + resp.status + ": " + txt.slice(0, 400) };
       }
       const data = await resp.json();
       if (!data.access_token) return { ok: false, reason: "no access_token in response" };
