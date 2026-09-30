@@ -37,6 +37,7 @@ export default [
         navigator: "readonly",
         self: "readonly",
         structuredClone: "readonly",
+        exportFunction: "readonly",
         requestAnimationFrame: "readonly",
         cancelAnimationFrame: "readonly",
         setTimeout: "readonly",
