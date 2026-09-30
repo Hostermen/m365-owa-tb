@@ -355,6 +355,7 @@ async function maybeRenew() {
     // remember whether we were authenticated before this renewal attempt
     // (cold boot: refresh token present but no live access token → bootstrap after)
     const wasAuth = Auth.isAuthenticated();
+    console.log("[M365OWA] maybeRenew: trying refresh token (scope=" + (Auth._refreshScope ? "yes" : "no") + ", url=" + (Auth._refreshUrl || "none") + ")");
     const r = await Auth.refreshViaRefreshToken();
     if (r.ok) {
       _clearRenewRetry();
@@ -366,6 +367,8 @@ async function maybeRenew() {
       return;
     }
     console.log("[M365OWA] refresh token renewal failed (" + r.reason + "), falling back to hidden iframe");
+  } else {
+    console.log("[M365OWA] maybeRenew: no refresh token stored, trying hidden iframe");
   }
 
   // fall back to the non-intrusive hidden iframe (works when the network is warm)

@@ -103,20 +103,36 @@
         if (!credType) continue;
         // extract tenant/realm from homeAccountId in the key (part after the dot)
         // key format: msal.3|{userObjectId}.{tenantId}|{env}|{credType}|...
+        // for accesstoken: ...|{credType}|{clientId}|{realm}|{target}
         var keyParts = lk.split("|");
         if (keyParts.length >= 2 && !realm) {
           var homeAcct = keyParts[1];
           var dotIdx = homeAcct.indexOf(".");
           if (dotIdx !== -1) realm = homeAcct.slice(dotIdx + 1);
         }
+        // extract scope from the accesstoken key (keyParts[6] = target/scope)
+        // but prefer obj.target from the value (more reliable, no delimiter leakage)
+        if (credType === "accesstoken" && keyParts.length >= 7) {
+          var scopeFromKey = keyParts.slice(6).join("|");
+          try { scopeFromKey = decodeURIComponent(scopeFromKey); } catch (e) {}
+          // strip trailing pipe (key delimiter leakage)
+          if (scopeFromKey) scopeFromKey = scopeFromKey.replace(/\|+$/, "");
+          if (scopeFromKey && (!scope || scopeFromKey.indexOf("outlook") !== -1)) {
+            scope = scopeFromKey;
+          }
+        }
         try { val = store.getItem(key); } catch (e) { continue; }
         if (!val) continue;
         var obj;
         try { obj = JSON.parse(val); } catch (e) { continue; }
         if (!obj || typeof obj !== "object") continue;
-        // the raw token is in the `data` field
-        var tok = obj.data;
+        // the raw token is in the `data` field (MSAL v5) or `secret` field (MSAL v3/v4)
+        var tok = obj.data || obj.secret;
         if (!tok || typeof tok !== "string") continue;
+        // prefer obj.target from the value over key-based extraction (no delimiter issues)
+        if (obj.target && (!scope || obj.target.indexOf("outlook") !== -1)) {
+          scope = obj.target;
+        }
 
         if (credType === "refreshtoken") {
           // prefer the refresh token for the OWA client_id
@@ -124,6 +140,13 @@
             refreshToken = tok;
             // extract client_id from the key (after |refreshtoken|)
             if (lk.indexOf(OWA_CLIENT_ID) !== -1) clientId = OWA_CLIENT_ID;
+            // log token details for debugging (first/last 15 chars only)
+            console.log("[M365OWA] content: refresh token found" +
+              " (len=" + tok.length +
+              " field=" + (obj.data ? "data" : "secret") +
+              " start=" + tok.slice(0, 15) + "..." +
+              " end=..." + tok.slice(-15) +
+              " key=" + lk.slice(0, 80) + ")");
           }
         } else if (credType === "accesstoken" && lk.indexOf(OWA_CLIENT_ID) !== -1) {
           // only keep JWT access tokens (start with "eyJ")
