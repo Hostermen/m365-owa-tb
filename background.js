@@ -85,6 +85,16 @@ const _tokenRequestData = new Map();
 function registerRefreshTokenHarvester() {
   // check whether filterResponseData is available (Thunderbird 57+/Firefox 57+)
   const useFilter = typeof browser.webRequest.filterResponseData === "function";
+  console.log("[M365OWA] filterResponseData available:", useFilter, "| typeof:", typeof browser.webRequest.filterResponseData);
+
+  // DIAGNOSTIC: broad listener for ALL login.microsoftonline.com requests
+  browser.webRequest.onBeforeRequest.addListener(
+    (details) => {
+      console.log("[M365OWA] DIAG: login.microsoftonline.com request:", details.method, details.url, "type:", details.type, "frameId:", details.frameId);
+    },
+    { urls: ["https://login.microsoftonline.com/*"] }
+  );
+
   // listen for POSTs to the OAuth2 token endpoints on login.microsoftonline.com
   browser.webRequest.onBeforeRequest.addListener(
     (details) => {
