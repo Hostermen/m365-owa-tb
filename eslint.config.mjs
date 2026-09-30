@@ -45,6 +45,7 @@ export default [
         setInterval: "readonly",
         clearInterval: "readonly",
         localStorage: "readonly",
+        sessionStorage: "readonly",
         // Cross-file globals shared across background scripts (TB loads
         // all background scripts into one shared scope, so these top-level
         // vars are visible to each other but eslint sees each file in isolation)
@@ -79,6 +80,7 @@ export default [
       "**/*.min.js",
       "experiments/**",
       "options_ui/particles.min.js",
+      "dev/**",
     ],
   },
 ];

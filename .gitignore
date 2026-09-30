@@ -14,3 +14,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Node / web-ext dev tooling
+node_modules/
+.eslintcache
