@@ -85,15 +85,7 @@ const _tokenRequestData = new Map();
 function registerRefreshTokenHarvester() {
   // check whether filterResponseData is available (Thunderbird 57+/Firefox 57+)
   const useFilter = typeof browser.webRequest.filterResponseData === "function";
-  console.log("[M365OWA] filterResponseData available:", useFilter, "| typeof:", typeof browser.webRequest.filterResponseData);
-
-  // DIAGNOSTIC: broad listener for ALL login.microsoftonline.com requests
-  browser.webRequest.onBeforeRequest.addListener(
-    (details) => {
-      console.log("[M365OWA] DIAG: login.microsoftonline.com request:", details.method, details.url, "type:", details.type, "frameId:", details.frameId);
-    },
-    { urls: ["https://login.microsoftonline.com/*"] }
-  );
+  console.log("[M365OWA] filterResponseData available:", useFilter);
 
   // listen for POSTs to the OAuth2 token endpoints on login.microsoftonline.com
   browser.webRequest.onBeforeRequest.addListener(
@@ -360,8 +352,19 @@ async function maybeRenew() {
 
   // try the refresh token first (fastest, no SSO dependency, survives reboots)
   if (Auth.hasRefreshToken()) {
+    // remember whether we were authenticated before this renewal attempt
+    // (cold boot: refresh token present but no live access token → bootstrap after)
+    const wasAuth = Auth.isAuthenticated();
     const r = await Auth.refreshViaRefreshToken();
-    if (r.ok) { _clearRenewRetry(); return; }
+    if (r.ok) {
+      _clearRenewRetry();
+      // bootstrap contacts/calendar when this renewal flipped us from
+      // unauthenticated → authenticated (typical cold-boot recovery)
+      if (!wasAuth && Auth.isAuthenticated()) {
+        onFirstHarvest().catch((e) => console.warn("[M365OWA] post-renew bootstrap failed:", e.message || e));
+      }
+      return;
+    }
     console.log("[M365OWA] refresh token renewal failed (" + r.reason + "), falling back to hidden iframe");
   }
 
@@ -478,13 +481,26 @@ browser.runtime.onMessage.addListener((msg) => {
         await messenger.calendar.calendars.synchronize();
         return { ok: true };
       case "m365-owa-refresh-token-harvest":
-        // content script captured a refresh token from OWA's MSAL.js token endpoint response
-        console.log("[M365OWA] received refresh token harvest from content script");
+        // content script captured tokens from OWA's MSAL.js cache (refresh + access)
+        console.log("[M365OWA] received token harvest from content script " +
+          "(refresh=" + (msg.refresh_token ? "yes" : "no") +
+          ", access=" + (msg.access_token ? "yes" : "no") + ")");
         {
           const wasAuth = Auth.isAuthenticated();
-          const ok = await Auth.harvestFromTokenResponse(
-            msg.refresh_token, msg.access_token, msg.client_id, msg.url, msg.scope
-          );
+          let ok = false;
+          if (msg.refresh_token) {
+            // full harvest: refresh token (+ optional access token) via harvestFromTokenResponse
+            ok = await Auth.harvestFromTokenResponse(
+              msg.refresh_token, msg.access_token, msg.client_id, msg.url, msg.scope
+            );
+          } else if (msg.access_token) {
+            // access-token-only harvest: MSAL cache had no refresh token, but a live
+            // access token is still enough to authenticate immediately. Persist it
+            // directly so the addon works now; the refresh token may appear on a
+            // later poll once MSAL performs a token-endpoint call.
+            try { await Auth.setToken(msg.access_token); ok = true; }
+            catch (e) { console.warn("[M365OWA] access-token-only harvest failed:", e.message || e); }
+          }
           if (ok) {
             _clearRenewRetry();
             if (!wasAuth && Auth.isAuthenticated()) onFirstHarvest();

@@ -47,7 +47,7 @@ repos:
     rev: v2.3.0
     hooks:
       - id: codespell
-        args: ["--ignore-words=.codespell-ignore", "--skip=*.xpi,*.min.js,.git/*,m365-owa-tb.xpi"]
+        args: ["--ignore-words=.codespell-ignore", "--skip=*.xpi,*.min.js,.git/*,m365-owa-tb.xpi,package-lock.json"]
 
   # 4. Security: detect secrets in source tree — Apache-2.0
   - repo: https://github.com/Yelp/detect-secrets
