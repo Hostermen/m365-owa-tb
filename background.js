@@ -88,6 +88,8 @@ function registerRefreshTokenHarvester() {
   // listen for POSTs to the OAuth2 token endpoints on login.microsoftonline.com
   browser.webRequest.onBeforeRequest.addListener(
     (details) => {
+      // log that we saw a token endpoint request (diagnostic)
+      console.log("[M365OWA] webRequest: token endpoint hit:", details.method, details.url);
       // skip our own refresh requests
       if (Auth._selfRefreshActive) return;
       // capture client_id and scope from the request body for later use with the response
@@ -465,6 +467,20 @@ browser.runtime.onMessage.addListener((msg) => {
         // trigger a manual calendar sync
         await messenger.calendar.calendars.synchronize();
         return { ok: true };
+      case "m365-owa-refresh-token-harvest":
+        // content script captured a refresh token from OWA's MSAL.js token endpoint response
+        console.log("[M365OWA] received refresh token harvest from content script");
+        {
+          const wasAuth = Auth.isAuthenticated();
+          const ok = await Auth.harvestFromTokenResponse(
+            msg.refresh_token, msg.access_token, msg.client_id, msg.url, msg.scope
+          );
+          if (ok) {
+            _clearRenewRetry();
+            if (!wasAuth && Auth.isAuthenticated()) onFirstHarvest();
+          }
+          return { ok };
+        }
     }
     // unknown message type
     return null;
