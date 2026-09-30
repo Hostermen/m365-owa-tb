@@ -248,6 +248,34 @@ var Auth = {
     return true;
   },
 
+  // Harvest refresh token + access token from a token endpoint RESPONSE body.
+  // This captures refresh tokens from ALL grant types (auth_code, refresh_token)
+  // by reading the response instead of the request.
+  async harvestFromTokenResponse(refreshToken, accessToken, clientId, url, scope) {
+    // skip when we're making our own refresh request
+    if (this._selfRefreshActive) return false;
+    // need a refresh token from the response
+    if (!refreshToken) return false;
+    // store the refresh token and related fields
+    this._refreshToken = refreshToken;
+    if (clientId) this._refreshClientId = clientId;
+    if (url) this._refreshUrl = url;
+    if (scope) this._refreshScope = scope;
+    // persist all four fields
+    await browser.storage.local.set({
+      [this._rkey()]: refreshToken,
+      [this._rckey()]: this._refreshClientId,
+      [this._rukey()]: this._refreshUrl,
+      [this._rskey()]: this._refreshScope,
+    });
+    console.log("[M365OWA] harvested refresh token from token endpoint response (client_id=" + (this._refreshClientId || "?").slice(0, 8) + "...)");
+    // also set the access token if provided (immediately authenticates the addon)
+    if (accessToken) {
+      await this.setToken(accessToken);
+    }
+    return true;
+  },
+
   // Refresh the access token using the stored refresh token; returns { ok, reason }.
   async refreshViaRefreshToken() {
     // need all three: refresh token, endpoint URL, and client_id
