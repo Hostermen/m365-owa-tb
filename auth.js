@@ -291,13 +291,11 @@ var Auth = {
       body.set("client_id", this._refreshClientId);
       body.set("refresh_token", this._refreshToken);
       body.set("client_info", "1");
-      // include scope when captured (needed for Azure AD to return OWA-scoped tokens)
-      if (this._refreshScope) body.set("scope", this._refreshScope);
+      // DO NOT send scope for refresh_token grant - Azure AD v2 returns the original scopes
       // log the request params (without the token itself) for debugging
       console.log("[M365OWA] refresh-token renewal: POST " + this._refreshUrl +
         " client_id=" + (this._refreshClientId || "?").slice(0, 8) + "..." +
-        " scope=" + (this._refreshScope ? this._refreshScope : "(none)") +
-        " token_len=" + (this._refreshToken ? this._refreshToken.length : 0) +
+        " no_scope token_len=" + (this._refreshToken ? this._refreshToken.length : 0) +
         " token_start=" + (this._refreshToken ? this._refreshToken.slice(0, 15) : "") +
         " token_end=" + (this._refreshToken ? this._refreshToken.slice(-15) : ""));
       // POST to the token endpoint (no cookies, no SSO dependency)
