@@ -126,24 +126,29 @@
         var obj;
         try { obj = JSON.parse(val); } catch (e) { continue; }
         if (!obj || typeof obj !== "object") continue;
-        // the raw token is in the `data` field (MSAL v5) or `secret` field (MSAL v3/v4)
-        var tok = obj.data || obj.secret;
+        // the raw token is in the `secret` field (MSAL v5) or `data` field (older format)
+        var tok = obj.secret || obj.data;
         if (!tok || typeof tok !== "string") continue;
-        // prefer obj.target from the value over key-based extraction (no delimiter issues)
+        // also check obj.target for scope (MSAL v3 standard cache value format)
         if (obj.target && (!scope || obj.target.indexOf("outlook") !== -1)) {
           scope = obj.target;
         }
+        // log token field details for debugging
+        console.log("[M365OWA] content: MSAL cache value keys=" + Object.keys(obj).join(","));
 
         if (credType === "refreshtoken") {
-          // prefer the refresh token for the OWA client_id
-          if (!refreshToken || lk.indexOf(OWA_CLIENT_ID) !== -1) {
+          // Azure AD v2 refresh tokens start with "1.AS8ADDAw-" or similar pattern
+          // If the token from MSAL cache doesn't look valid, skip it
+          var validTokenFormat = tok.length > 100 && tok.indexOf("1.AS8") === 0;
+          if (!refreshToken || (lk.indexOf(OWA_CLIENT_ID) !== -1 && validTokenFormat)) {
             refreshToken = tok;
             // extract client_id from the key (after |refreshtoken|)
             if (lk.indexOf(OWA_CLIENT_ID) !== -1) clientId = OWA_CLIENT_ID;
-            // log token details for debugging (first/last 15 chars only)
+            // log token details for debugging
             console.log("[M365OWA] content: refresh token found" +
               " (len=" + tok.length +
               " field=" + (obj.data ? "data" : "secret") +
+              " valid=" + validTokenFormat +
               " start=" + tok.slice(0, 15) + "..." +
               " end=..." + tok.slice(-15) +
               " key=" + lk.slice(0, 80) + ")");
