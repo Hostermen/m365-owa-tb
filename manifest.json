@@ -3,12 +3,12 @@
   "name": "M365 OWA Sync (Contacts + Calendar)",
   "author": "Lukas J. Kümmerle",
   "description": "Sync Microsoft 365 calendar and contacts with Thunderbird via Outlook on the web (OWA) service endpoints. Log in to OWA once through the addon; tokens are captured from your own OWA session and refreshed automatically. No Azure app registration required.",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "browser_specific_settings": {
     "gecko": {
       "id": "m365-owa@luk27094.local",
       "strict_min_version": "156.0",
-      "strict_max_version": "156.*"
+      "strict_max_version": "157.*"
     }
   },
 
@@ -33,7 +33,8 @@
     "https://*.office.com/*",
     "https://*.office365.com/*",
     "https://*.cloud.microsoft/*",
-    "https://login.microsoftonline.com/*"
+    "https://login.microsoftonline.com/*",
+    "https://login.windows.net/*"
   ],
 
   "calendar_provider": {
