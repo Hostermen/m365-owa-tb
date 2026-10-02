@@ -100,6 +100,15 @@ function registerRefreshTokenHarvester() {
         const fd = details.requestBody.formData;
         cid = (fd.client_id && fd.client_id[0]) || null;
         scope = (fd.scope && fd.scope[0]) || null;
+        // log ALL form fields for MSAL's own token requests (diagnostic)
+        console.log("[M365OWA] webRequest: MSAL token request params:" +
+          " grant_type=" + (fd.grant_type && fd.grant_type[0] || "?") +
+          " client_id=" + (cid || "?").slice(0, 12) +
+          " scope=" + (scope || "none").slice(0, 100) +
+          " resource=" + (fd.resource && fd.resource[0] || "none") +
+          " client_info=" + (fd.client_info && fd.client_info[0] || "none") +
+          " refresh_token_len=" + (fd.refresh_token && fd.refresh_token[0] && fd.refresh_token[0].length || 0) +
+          " code_len=" + (fd.code && fd.code[0] && fd.code[0].length || 0));
       }
       if (useFilter) {
         // store request data keyed by requestId so the response handler can use it
@@ -118,24 +127,34 @@ function registerRefreshTokenHarvester() {
           filter.close();
           const reqData = _tokenRequestData.get(details.requestId) || {};
           _tokenRequestData.delete(details.requestId);
+          // log the token response for diagnostics
+          console.log("[M365OWA] webRequest: token response (len=" + responseText.length + "): " + responseText.slice(0, 400));
           try {
             const data = JSON.parse(responseText);
             if (data.refresh_token) {
+              console.log("[M365OWA] webRequest: refresh_token in response! len=" + data.refresh_token.length +
+                " start=" + data.refresh_token.slice(0, 20) + " token_type=" + (data.token_type || "?") +
+                " scope=" + (data.scope || "none").slice(0, 100));
               const wasAuth = Auth.isAuthenticated();
               Auth.harvestFromTokenResponse(
                 data.refresh_token,
                 data.access_token,
                 reqData.cid || null,
                 reqData.url || details.url,
-                reqData.scope || data.scope || null
+                reqData.scope || data.scope || null,
+                "webRequest"
               ).then((ok) => {
                 if (ok) {
                   _clearRenewRetry();
                   if (!wasAuth && Auth.isAuthenticated()) onFirstHarvest();
                 }
               }).catch((e) => console.warn("[M365OWA] refresh token harvest (response) failed:", e.message || e));
+            } else {
+              console.log("[M365OWA] webRequest: no refresh_token in response. Keys:", Object.keys(data).join(","));
             }
-          } catch {}
+          } catch (e) {
+            console.log("[M365OWA] webRequest: response parse failed:", e.message || e);
+          }
         };
         filter.onerror = () => {
           try { filter.disconnect(); } catch {}
@@ -152,10 +171,12 @@ function registerRefreshTokenHarvester() {
         }
       }
     },
-    // match the v2.0 and v1.0 token endpoints on login.microsoftonline.com
+    // match the v2.0 and v1.0 token endpoints on login.microsoftonline.com AND login.windows.net
     { urls: [
       "https://login.microsoftonline.com/*/oauth2/v2.0/token",
       "https://login.microsoftonline.com/*/oauth2/token",
+      "https://login.windows.net/*/oauth2/v2.0/token",
+      "https://login.windows.net/*/oauth2/token",
     ] },
     // request body visibility + blocking (required by filterResponseData)
     useFilter ? ["requestBody", "blocking"] : ["requestBody"]
@@ -355,7 +376,8 @@ async function maybeRenew() {
     // remember whether we were authenticated before this renewal attempt
     // (cold boot: refresh token present but no live access token → bootstrap after)
     const wasAuth = Auth.isAuthenticated();
-    console.log("[M365OWA] maybeRenew: trying refresh token (scope=" + (Auth._refreshScope ? "yes" : "no") + ", url=" + (Auth._refreshUrl || "none") + ")");
+    console.log("[M365OWA] maybeRenew: trying refresh tokens (count=" + Auth._refreshTokens.length +
+      ", first url=" + (Auth._refreshTokens[0] ? Auth._refreshTokens[0].url || "none" : "none") + ")");
     const r = await Auth.refreshViaRefreshToken();
     if (r.ok) {
       _clearRenewRetry();
@@ -485,17 +507,21 @@ browser.runtime.onMessage.addListener((msg) => {
         return { ok: true };
       case "m365-owa-refresh-token-harvest":
         // content script captured tokens from OWA's MSAL.js cache (refresh + access)
-        console.log("[M365OWA] received token harvest from content script " +
-          "(refresh=" + (msg.refresh_token ? "yes" : "no") +
+        console.log("[M365OWA] received token harvest from " + (msg.source || "content script") +
+          " (refresh_tokens=" + (msg.refresh_tokens ? msg.refresh_tokens.length : 0) +
           ", access=" + (msg.access_token ? "yes" : "no") + ")");
         {
           const wasAuth = Auth.isAuthenticated();
           let ok = false;
-          if (msg.refresh_token) {
-            // full harvest: refresh token (+ optional access token) via harvestFromTokenResponse
-            ok = await Auth.harvestFromTokenResponse(
-              msg.refresh_token, msg.access_token, msg.client_id, msg.url, msg.scope
-            );
+          if (msg.refresh_tokens && msg.refresh_tokens.length) {
+            // iterate over every refresh token the content script found
+            for (const t of msg.refresh_tokens) {
+              const source = msg.source || "content-script";
+              const r = await Auth.harvestFromTokenResponse(
+                t.refreshToken, msg.access_token, t.clientId, t.url, t.scope, source
+              );
+              if (r) ok = true;
+            }
           } else if (msg.access_token) {
             // access-token-only harvest: MSAL cache had no refresh token, but a live
             // access token is still enough to authenticate immediately. Persist it

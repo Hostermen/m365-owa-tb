@@ -13,12 +13,55 @@
 (function() {
   console.log("[M365OWA] content script loaded on:", location.href);
 
+  // --- Inject page-hook.js into the page world to intercept MSAL's fetch/XHR ---
+  // The page hook patches fetch() and XMLHttpRequest in the PAGE world (where MSAL runs)
+  // to capture token endpoint requests and responses. This is the only reliable way
+  // to see the exact parameters MSAL sends and to capture refresh tokens from the
+  // token endpoint response, since the webRequest API may not observe page-originated
+  // requests in Thunderbird.
+  try {
+    var script = document.createElement("script");
+    script.src = browser.runtime.getURL("content/page-hook.js");
+    script.async = false;
+    (document.head || document.documentElement).appendChild(script);
+    script.onload = function() { script.remove(); };
+    console.log("[M365OWA] content: injected page-hook.js into page world");
+  } catch (e) {
+    console.warn("[M365OWA] content: page-hook injection failed:", e.message || e);
+  }
+
+  // Listen for token response messages from the page hook (page world)
+  window.addEventListener("message", function(event) {
+    if (event.source !== window) return;
+    var data = event.data;
+    if (!data || data.type !== "M365OWA_TOKEN_RESPONSE") return;
+    console.log("[M365OWA] content: received page-hook token response" +
+      " (refresh_token=" + (data.refresh_token ? "yes(len=" + data.refresh_token.length + ")" : "no") +
+      " client_id=" + (data.client_id || "?").slice(0, 12) +
+      " url=" + (data.url || "?") + ")");
+    try {
+      browser.runtime.sendMessage({
+        type: "m365-owa-refresh-token-harvest",
+        refresh_tokens: [{
+          refreshToken: data.refresh_token,
+          clientId: data.client_id || OWA_CLIENT_ID,
+          scope: data.scope || null,
+          url: data.url || null,
+          environment: null,
+        }],
+        access_token: data.access_token || null,
+        source: "page-hook",
+      }).catch(function() {});
+    } catch (e) {
+      console.warn("[M365OWA] content: page-hook relay failed:", e.message || e);
+    }
+  });
+
   // OWA's well-known public client_id (Microsoft Office / outlook).
   var OWA_CLIENT_ID = "9199bf20-a13f-4107-85dc-02114787ef48";
 
-  // Last values relayed to the background (avoid spamming on every poll).
-  var lastRefresh = null;
-  var lastAccess = null;
+  // Fingerprint of the last relayed token set (avoid spamming on every poll).
+  var lastFingerprint = null;
   // Whether debug mode is enabled (checked once from extension storage).
   // Toggle from the Browser Toolbox console:
   //   browser.storage.local.set({ m365_owa_debug: true })
@@ -80,8 +123,9 @@
   //   Value: {id, nonce, data, lastUpdatedAt}
   //          where `data` is the raw token string
   function scanMsalCache() {
-    var refreshToken = null, accessToken = null;
-    var clientId = null, scope = null, realm = null;
+    var refreshTokens = [];  // array of {refreshToken, clientId, scope, url, environment}
+    var accessToken = null;
+    var globalScope = null, globalRealm = null, globalEnv = null;
     var stores = [getStore("session"), getStore("local")];
     for (var si = 0; si < stores.length; si++) {
       var store = stores[si];
@@ -101,24 +145,29 @@
         else if (lk.indexOf("|accesstoken|") !== -1) credType = "accesstoken";
         else if (lk.indexOf("|idtoken|") !== -1) credType = "idtoken";
         if (!credType) continue;
-        // extract tenant/realm from homeAccountId in the key (part after the dot)
-        // key format: msal.3|{userObjectId}.{tenantId}|{env}|{credType}|...
-        // for accesstoken: ...|{credType}|{clientId}|{realm}|{target}
         var keyParts = lk.split("|");
-        if (keyParts.length >= 2 && !realm) {
+        // extract tenant/realm from this entry's own key (homeAccountId = {oid}.{tenantId})
+        var entryRealm = null;
+        if (keyParts.length >= 2) {
           var homeAcct = keyParts[1];
           var dotIdx = homeAcct.indexOf(".");
-          if (dotIdx !== -1) realm = homeAcct.slice(dotIdx + 1);
+          if (dotIdx !== -1) entryRealm = homeAcct.slice(dotIdx + 1);
+          if (entryRealm && !globalRealm) globalRealm = entryRealm;
+        }
+        // extract environment (authority hostname) from keyParts[2]
+        // e.g., "login.windows.net" or "login.microsoftonline.com"
+        var entryEnv = null;
+        if (keyParts.length >= 3 && keyParts[2]) {
+          entryEnv = keyParts[2];
+          if (!globalEnv) globalEnv = entryEnv;
         }
         // extract scope from the accesstoken key (keyParts[6] = target/scope)
-        // but prefer obj.target from the value (more reliable, no delimiter leakage)
         if (credType === "accesstoken" && keyParts.length >= 7) {
           var scopeFromKey = keyParts.slice(6).join("|");
           try { scopeFromKey = decodeURIComponent(scopeFromKey); } catch (e) {}
-          // strip trailing pipe (key delimiter leakage)
           if (scopeFromKey) scopeFromKey = scopeFromKey.replace(/\|+$/, "");
-          if (scopeFromKey && (!scope || scopeFromKey.indexOf("outlook") !== -1)) {
-            scope = scopeFromKey;
+          if (scopeFromKey && (!globalScope || scopeFromKey.indexOf("outlook") !== -1)) {
+            globalScope = scopeFromKey;
           }
         }
         try { val = store.getItem(key); } catch (e) { continue; }
@@ -130,29 +179,43 @@
         var tok = obj.secret || obj.data;
         if (!tok || typeof tok !== "string") continue;
         // also check obj.target for scope (MSAL v3 standard cache value format)
-        if (obj.target && (!scope || obj.target.indexOf("outlook") !== -1)) {
-          scope = obj.target;
+        if (obj.target && (!globalScope || obj.target.indexOf("outlook") !== -1)) {
+          globalScope = obj.target;
         }
-        // log token field details for debugging
-        console.log("[M365OWA] content: MSAL cache value keys=" + Object.keys(obj).join(","));
-
         if (credType === "refreshtoken") {
-          // Azure AD v2 refresh tokens start with "1.AS8ADDAw-" or similar pattern
-          // If the token from MSAL cache doesn't look valid, skip it
-          var validTokenFormat = tok.length > 100 && tok.indexOf("1.AS8") === 0;
-          if (!refreshToken || (lk.indexOf(OWA_CLIENT_ID) !== -1 && validTokenFormat)) {
-            refreshToken = tok;
-            // extract client_id from the key (after |refreshtoken|)
-            if (lk.indexOf(OWA_CLIENT_ID) !== -1) clientId = OWA_CLIENT_ID;
-            // log token details for debugging
-            console.log("[M365OWA] content: refresh token found" +
-              " (len=" + tok.length +
-              " field=" + (obj.data ? "data" : "secret") +
-              " valid=" + validTokenFormat +
-              " start=" + tok.slice(0, 15) + "..." +
-              " end=..." + tok.slice(-15) +
-              " key=" + lk.slice(0, 80) + ")");
-          }
+          // Azure AD v2 refresh tokens typically start with "0.A" or "1.A" patterns
+          var validTokenFormat = tok.length > 100 && (tok.indexOf("1.A") === 0 || tok.indexOf("0.A") === 0);
+          // extract the real clientId from the MSAL cache key (keyParts[4])
+          // format: msal.3|{homeAccountId}|{environment}|{credentialType}|{clientId}|{realm}|{target}
+          var entryClientId = (keyParts.length >= 5 && keyParts[4] && keyParts[4].length > 10) ? keyParts[4] : OWA_CLIENT_ID;
+          // log EVERY refreshtoken entry found (always-on diagnostic)
+          console.log("[M365OWA] content: REFRESHTOKEN entry" +
+            " (len=" + tok.length +
+            " field=" + (obj.secret ? "secret" : "data") +
+            " valid=" + validTokenFormat +
+            " start=" + tok.slice(0, 20) +
+            " end=..." + tok.slice(-15) +
+            " clientId=" + entryClientId.slice(0, 12) +
+            " hasOWA=" + (lk.indexOf(OWA_CLIENT_ID) !== -1) +
+            " env=" + (entryEnv || "?") +
+            " key=" + lk.slice(0, 120) + ")");
+          // collect ALL refresh tokens — the Azure AD token endpoint is the
+          // only real validator, so we don't filter by format here. The
+          // background tries each one at renewal time.
+          var realmForEntry = entryRealm || globalRealm;
+          var envForEntry = entryEnv || globalEnv || "login.microsoftonline.com";
+          // build the token endpoint URL using the ACTUAL authority hostname
+          // from the MSAL cache key (login.windows.net or login.microsoftonline.com)
+          var tokenUrl = realmForEntry
+            ? "https://" + envForEntry + "/" + realmForEntry + "/oauth2/v2.0/token"
+            : null;
+          refreshTokens.push({
+            refreshToken: tok,
+            clientId: entryClientId,
+            scope: globalScope,
+            url: tokenUrl,
+            environment: envForEntry,
+          });
         } else if (credType === "accesstoken" && lk.indexOf(OWA_CLIENT_ID) !== -1) {
           // only keep JWT access tokens (start with "eyJ")
           if (tok.indexOf("eyJ") === 0 && !accessToken) {
@@ -161,43 +224,29 @@
         }
       }
     }
-    if (!refreshToken && !accessToken) return null;
-    // build the token endpoint URL from the tenant realm
-    var url = null;
-    if (realm) url = "https://login.microsoftonline.com/" + realm + "/oauth2/v2.0/token";
+    if (!refreshTokens.length && !accessToken) return null;
     return {
-      refreshToken: refreshToken,
+      refreshTokens: refreshTokens,
       accessToken: accessToken,
-      clientId: clientId,
-      scope: scope,
-      url: url,
     };
   }
 
-  // Relay captured tokens to the background script, but only when a value
+  // Relay captured tokens to the background script, but only when the set
   // actually changed since the last relay.
   function relay(found) {
-    var changed = false;
-    if (found.refreshToken && found.refreshToken !== lastRefresh) {
-      lastRefresh = found.refreshToken;
-      changed = true;
-    }
-    if (found.accessToken && found.accessToken !== lastAccess) {
-      lastAccess = found.accessToken;
-      changed = true;
-    }
-    if (!changed) return;
-    console.log("[M365OWA] content: relaying MSAL cache tokens to background " +
-      "(refresh=" + (found.refreshToken ? "yes" : "no") +
-      ", access=" + (found.accessToken ? "yes" : "no") + ")");
+    // fingerprint the token set for change detection
+    var fp = found.refreshTokens.map(function(e) {
+      return e.refreshToken.slice(0, 20) + ":" + e.refreshToken.length;
+    }).join("|") + "|access=" + (found.accessToken ? found.accessToken.slice(0, 20) : "none");
+    if (fp === lastFingerprint) return;
+    lastFingerprint = fp;
+    console.log("[M365OWA] content: relaying " + found.refreshTokens.length + " refresh token(s)" +
+      " + " + (found.accessToken ? "access" : "no access") + " to background");
     try {
       browser.runtime.sendMessage({
         type: "m365-owa-refresh-token-harvest",
-        refresh_token: found.refreshToken || null,
+        refresh_tokens: found.refreshTokens,
         access_token: found.accessToken || null,
-        client_id: found.clientId || null,
-        scope: found.scope || null,
-        url: found.url || null,
       }).catch(function() {});
     } catch (e) {
       console.warn("[M365OWA] content: relay failed:", e.message || e);
@@ -252,10 +301,10 @@
       if (found.accessToken) {
         var exp = jwtExpMs(found.accessToken);
         if (exp != null && exp <= Date.now()) {
-          // expired access token — drop it, keep the refresh token
+          // expired access token — drop it, keep the refresh tokens
           found.accessToken = null;
-          // also forget our "last seen" so a fresh one relay later
-          lastAccess = null;
+          // also forget our fingerprint so a fresh one relay later
+          lastFingerprint = null;
         }
       }
       relay(found);
