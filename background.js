@@ -6,6 +6,8 @@
   await Auth.loadStoredToken();
   // restore the stored refresh token (survives reboots, no SSO dependency)
   await Auth.loadStoredRefreshToken();
+  // restore the PKCE refresh token (90-day rolling — primary auth method)
+  await Auth.loadStoredPkceToken();
   // register the OWA Authorization-header harvester
   registerHarvester();
   // register the refresh-token harvester on login.microsoftonline.com
@@ -182,6 +184,135 @@ function registerRefreshTokenHarvester() {
     useFilter ? ["requestBody", "blocking"] : ["requestBody"]
   );
   console.log("[M365OWA] refresh token harvester registered (mode: " + (useFilter ? "response-filter" : "request-only") + ")");
+}
+
+// --- PKCE OAuth2 login flow (90-day rolling refresh tokens, no Azure app registration) ---
+// Pending PKCE login state: set when the login tab is opened, cleared when the
+// redirect is intercepted or the login times out.
+// Shape: { verifier, state, tabId, resolve, reject, timer }
+let _pkcePending = null;
+
+// Intercept the OAuth2 redirect to http://localhost and extract the auth code.
+// Registered once at startup; active whenever a PKCE login is in progress.
+browser.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    // no pending login → ignore
+    if (!_pkcePending) return;
+    // parse the redirect URL
+    let url;
+    try { url = new URL(details.url); } catch { return; }
+    // verify the state parameter matches our pending login (CSRF protection)
+    const state = url.searchParams.get("state");
+    if (state !== _pkcePending.state) return;
+    // check for an error response (e.g. access_denied, invalid_scope)
+    const error = url.searchParams.get("error");
+    if (error) {
+      const errorDesc = url.searchParams.get("error_description") || "";
+      console.log("[M365OWA] PKCE: login error from Microsoft: " + error + " — " + errorDesc);
+      _pkcePending.reject(new Error("OAuth error: " + error + " — " + errorDesc));
+      clearTimeout(_pkcePending.timer);
+      _pkcePending = null;
+      return { cancel: true };
+    }
+    // extract the authorization code
+    const code = url.searchParams.get("code");
+    if (!code) {
+      console.log("[M365OWA] PKCE: redirect has no code parameter");
+      return { cancel: true };
+    }
+    console.log("[M365OWA] PKCE: auth code captured from redirect (len=" + code.length + ")");
+    // close the login tab (no longer needed)
+    if (_pkcePending.tabId != null) {
+      try { browser.tabs.remove(_pkcePending.tabId); } catch {}
+    }
+    // resolve the pending login promise with the auth code
+    _pkcePending.resolve(code);
+    clearTimeout(_pkcePending.timer);
+    _pkcePending = null;
+    // cancel the request (prevent localhost from actually loading)
+    return { cancel: true };
+  },
+  { urls: ["http://localhost/*"] },
+  ["blocking"]
+);
+console.log("[M365OWA] PKCE redirect interceptor registered");
+
+// Strip the Origin header from our own PKCE token requests so Microsoft's
+// token endpoint treats them as native/public-client requests (not cross-origin
+// SPA requests). Without this, AAD rejects the authorization_code redemption with
+// AADSTS9002326 ("Cross-origin token redemption is permitted only for the
+// 'Single-Page Application' client-type") because Thunderbird attaches
+// Origin: moz-extension://<uuid> to background-page fetch() calls.
+// OWA's own MSAL requests originate from content tabs (Origin: https://outlook.*)
+// and are left untouched by the moz-extension:// filter below.
+browser.webRequest.onBeforeSendHeaders.addListener(
+  (details) => {
+    let changed = false;
+    const kept = [];
+    for (const h of (details.requestHeaders || [])) {
+      const name = (h.name || "").toLowerCase();
+      // drop the Origin header only when our extension issued the request
+      if (name === "origin" && /^(moz|chrome)-extension:/.test(h.value || "")) {
+        changed = true;
+        continue;
+      }
+      kept.push(h);
+    }
+    return changed ? { requestHeaders: kept } : {};
+  },
+  { urls: [
+    "https://login.microsoftonline.com/*/oauth2/v2.0/token",
+    "https://login.microsoftonline.com/*/oauth2/token",
+    "https://login.windows.net/*/oauth2/v2.0/token",
+    "https://login.windows.net/*/oauth2/token",
+  ] },
+  ["blocking", "requestHeaders"]
+);
+console.log("[M365OWA] PKCE Origin stripper registered");
+
+// Start the PKCE OAuth2 login flow: open a Microsoft login tab, wait for the
+// redirect, exchange the code for tokens, and store them. Returns { ok, reason }.
+// The user logs in once; the resulting refresh token lasts 90 days (rolling).
+async function pkceLogin() {
+  // refuse to start if a login is already in progress
+  if (_pkcePending) return { ok: false, reason: "PKCE login already in progress" };
+  try {
+    // build the authorization URL + PKCE parameters
+    const { url, verifier, state } = await TbOAuth.buildAuthUrl();
+    console.log("[M365OWA] PKCE: starting login flow (client_id=" + TbOAuth.CLIENT_ID.slice(0, 8) + "..." + ")");
+    // open the Microsoft login tab
+    const tab = await browser.tabs.create({ url, active: true });
+    // create a promise that resolves when the redirect is intercepted
+    const codePromise = new Promise((resolve, reject) => {
+      // 5-minute timeout — user may walk away or close the tab
+      const timer = setTimeout(() => {
+        if (_pkcePending && _pkcePending.state === state) {
+          console.log("[M365OWA] PKCE: login timed out (5 minutes)");
+          _pkcePending.reject(new Error("Login timed out (5 minutes)"));
+          _pkcePending = null;
+        }
+      }, 5 * 60 * 1000);
+      _pkcePending = { verifier, state, tabId: tab.id, resolve, reject, timer };
+    });
+    // wait for the auth code (from the redirect interceptor)
+    const code = await codePromise;
+    // exchange the code for access + refresh tokens
+    const data = await TbOAuth.exchangeCode(code, verifier);
+    // store the tokens (access token + 90-day refresh token)
+    await Auth.setPkceTokens(data);
+    console.log("[M365OWA] PKCE: login flow complete — 90-day refresh token stored");
+    // bootstrap contacts + calendar sync
+    await onFirstHarvest();
+    return { ok: true };
+  } catch (e) {
+    // clean up pending state on any error
+    if (_pkcePending) {
+      clearTimeout(_pkcePending.timer);
+      _pkcePending = null;
+    }
+    console.warn("[M365OWA] PKCE login failed:", e.message || e);
+    return { ok: false, reason: (e && e.message) || String(e) };
+  }
 }
 
 // Bootstrap contacts and calendar once, right after the first token harvest of a session.
@@ -362,21 +493,36 @@ async function renewTokenViaTab() {
 // (_renewRetryTimer / _renewRetryIndex are declared with the other module-level state above.)
 
 // Renew the token when it is missing, flagged expired, or older than 30 minutes.
-// Tries the refresh token first (no SSO, no browser, survives reboots), then the
-// non-intrusive hidden iframe, then a background OWA tab, and on failure schedules
-// a backoff retry so a flaky cold-boot network still recovers.
+// Tries the PKCE refresh token first (90-day rolling, most reliable), then the
+// OWA-harvested refresh tokens (24h SPA), then the non-intrusive hidden iframe,
+// then a background OWA tab, and on failure schedules a backoff retry.
 async function maybeRenew() {
-  // skip when no token was ever captured AND no refresh token stored
-  if (!Auth._token && !Auth.hasRefreshToken()) return;
+  // skip when no token was ever captured AND no refresh tokens of any kind stored
+  if (!Auth._token && !Auth.hasRefreshToken() && !Auth.hasPkceRefreshToken()) return;
   // skip fresh, valid tokens — nothing to do
   if (Auth._token && !Auth._expired && Auth.tokenAgeMs() <= 30 * 60 * 1000) return;
 
-  // try the refresh token first (fastest, no SSO dependency, survives reboots)
+  // remember whether we were authenticated before this renewal attempt
+  // (cold boot: refresh token present but no live access token → bootstrap after)
+  const wasAuth = Auth.isAuthenticated();
+
+  // === Priority 1: PKCE refresh token (90-day rolling, public client — never re-login) ===
+  if (Auth.hasPkceRefreshToken()) {
+    console.log("[M365OWA] maybeRenew: trying PKCE refresh token (90-day rolling)");
+    const r = await Auth.refreshViaPkce();
+    if (r.ok) {
+      _clearRenewRetry();
+      if (!wasAuth && Auth.isAuthenticated()) {
+        onFirstHarvest().catch((e) => console.warn("[M365OWA] post-PKCE-renew bootstrap failed:", e.message || e));
+      }
+      return;
+    }
+    console.log("[M365OWA] PKCE refresh failed (" + r.reason + "), falling back to OWA refresh tokens");
+  }
+
+  // === Priority 2: OWA-harvested refresh tokens (24h SPA, less reliable) ===
   if (Auth.hasRefreshToken()) {
-    // remember whether we were authenticated before this renewal attempt
-    // (cold boot: refresh token present but no live access token → bootstrap after)
-    const wasAuth = Auth.isAuthenticated();
-    console.log("[M365OWA] maybeRenew: trying refresh tokens (count=" + Auth._refreshTokens.length +
+    console.log("[M365OWA] maybeRenew: trying OWA refresh tokens (count=" + Auth._refreshTokens.length +
       ", first url=" + (Auth._refreshTokens[0] ? Auth._refreshTokens[0].url || "none" : "none") + ")");
     const r = await Auth.refreshViaRefreshToken();
     if (r.ok) {
@@ -386,11 +532,30 @@ async function maybeRenew() {
       if (!wasAuth && Auth.isAuthenticated()) {
         onFirstHarvest().catch((e) => console.warn("[M365OWA] post-renew bootstrap failed:", e.message || e));
       }
+      // SPA refresh tokens die 24h after the last interactive auth (OWA is a SPA).
+      // Proactively trigger a cookie-based renewal (hidden iframe) when the
+      // interactive harvest is stale, so OWA's MSAL mints a fresh SPA refresh
+      // token with a new 24h window. Without this, the refresh token dies after
+      // 24h and the addon falls back to cookie-only renewal (which fails if the
+      // session cookie also expired, forcing the user to re-login).
+      const SPA_REFRESH_INTERVAL = 12 * 60 * 60 * 1000; // 12h (half the 24h window)
+      if (Auth._lastInteractiveHarvestTs &&
+          Date.now() - Auth._lastInteractiveHarvestTs > SPA_REFRESH_INTERVAL) {
+        const h = Math.round((Date.now() - Auth._lastInteractiveHarvestTs) / 3600000);
+        console.log("[M365OWA] SPA token window stale (" + h + "h since last interactive harvest), triggering background cookie renewal");
+        // defer 5s so maybeRenew() returns first and _renewalActive is free
+        setTimeout(() => {
+          renewTokenHidden().then((rr) => {
+            if (rr.ok) console.log("[M365OWA] SPA proactive renewal succeeded (fresh refresh token harvested)");
+            else console.log("[M365OWA] SPA proactive renewal failed: " + rr.reason);
+          }).catch((e) => console.warn("[M365OWA] SPA proactive renewal error:", e.message || e));
+        }, 5000);
+      }
       return;
     }
-    console.log("[M365OWA] refresh token renewal failed (" + r.reason + "), falling back to hidden iframe");
+    console.log("[M365OWA] OWA refresh token renewal failed (" + r.reason + "), falling back to hidden iframe");
   } else {
-    console.log("[M365OWA] maybeRenew: no refresh token stored, trying hidden iframe");
+    console.log("[M365OWA] maybeRenew: no OWA refresh token stored, trying hidden iframe");
   }
 
   // fall back to the non-intrusive hidden iframe (works when the network is warm)
@@ -446,9 +611,19 @@ browser.runtime.onMessage.addListener((msg) => {
     // dispatch based on the message type
     switch (msg && msg.type) {
       case "m365-owa-connect":
-        // open the OWA login tab (or focus the existing one)
-        await Auth.ensureOwaTab();
-        // report success; the harvester completes the login once OWA issues a token
+        // Start the PKCE login flow (90-day rolling refresh tokens, no Azure app registration).
+        // Runs in the background — the options page polls for auth status.
+        // Falls back to the OWA tab login if PKCE fails (e.g. scopes not available).
+        pkceLogin().then((r) => {
+          if (!r.ok) {
+            console.log("[M365OWA] PKCE login failed (" + r.reason + "), falling back to OWA tab login");
+            Auth.ensureOwaTab().catch((e) => console.warn("[M365OWA] OWA tab fallback failed:", e.message || e));
+          }
+        }).catch((e) => {
+          console.warn("[M365OWA] PKCE login error:", e.message || e, "— falling back to OWA tab login");
+          Auth.ensureOwaTab().catch(() => {});
+        });
+        // report success immediately (the login tab opens asynchronously)
         return { ok: true };
       case "m365-owa-disconnect":
         // close the OWA login tab
@@ -494,7 +669,8 @@ browser.runtime.onMessage.addListener((msg) => {
         await loadConfig();
         return { ok: true };
       case "m365-owa-debug-renew":
-        // force a background renewal on demand (Diagnostics button): try refresh token, then hidden iframe, then tab fallback
+        // force a background renewal on demand (Diagnostics button): try PKCE, then OWA refresh token, then hidden iframe, then tab fallback
+        if (Auth.hasPkceRefreshToken()) { const r = await Auth.refreshViaPkce(); if (r.ok) return r; }
         if (Auth.hasRefreshToken()) { const r = await Auth.refreshViaRefreshToken(); if (r.ok) return r; }
         { const r = await renewTokenHidden(); if (r.ok) return r; return await renewTokenViaTab(); }
       case "m365-owa-sync-contacts":
@@ -561,6 +737,7 @@ globalThis.M365OWA = {
       tokenAgeSec: Math.floor(Auth.tokenAgeMs() / 1000),
       tokenExpiry: Auth.getTokenExpiry(),
       hasRefresh: Auth.hasRefreshToken(),
+      hasPkceRefresh: Auth.hasPkceRefreshToken(),
       owaTabOpen: (await Auth._liveOwaTabId()) != null,
     };
   },
@@ -572,6 +749,8 @@ globalThis.M365OWA = {
   async syncContacts() { return ContactsSync.sync(); },
   // Trigger a calendar sync.
   async syncCalendar() { return messenger.calendar.calendars.synchronize(); },
+  // Start the PKCE OAuth2 login flow (90-day rolling refresh tokens).
+  async pkceLogin() { return pkceLogin(); },
   // Reload the addon.
   async reload() { browser.runtime.reload(); },
 };

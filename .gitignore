@@ -1,6 +1,7 @@
 # Build artifacts
 *.xpi
 *.zip
+m365-owa-tb.xpi.extracted*/
 
 # OS files
 .DS_Store
