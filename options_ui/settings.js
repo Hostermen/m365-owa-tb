@@ -133,24 +133,36 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     failCount = 0;
-    // keep the Connect/Disconnect button in sync with the configured state too
-    // (the initial updateConnectButton() on load may have seen a null status
-    // while the background was still starting up on a cold boot).
-    const btn = $("connectBtn");
-    if (s.authenticated || s.configured) {
-      btn.textContent = "Disconnect";
-      btn.classList.remove("primary");
-    } else {
-      btn.textContent = "Connect";
-      btn.classList.add("primary");
-    }
-    updateConnectBadge(s);
+    applyStatus(s);
     // keep polling for the lifetime of the options page so both
     // online→offline and offline→online transitions update the badge
     // within ~5s without the user reopening the page. The sendMessage
     // is a cheap in-process call, so running it indefinitely is fine.
   }, 5000);
+
+  // push-based badge updates: the background broadcasts connectivity
+  // changes the instant they happen (window events + probe transitions),
+  // so the badge reacts in real time instead of waiting for the 5s poll.
+  browser.runtime.onMessage.addListener((msg) => {
+    if (msg && msg.type === "m365-owa-connectivity") {
+      refreshStatus().then((s) => { if (s) applyStatus(s); }).catch(() => {});
+    }
+    return false;
+  });
 });
+
+// shared helper used by both the poll and the push listener
+function applyStatus(s) {
+  const btn = $("connectBtn");
+  if (s.authenticated || s.configured) {
+    btn.textContent = "Disconnect";
+    btn.classList.remove("primary");
+  } else {
+    btn.textContent = "Connect";
+    btn.classList.add("primary");
+  }
+  updateConnectBadge(s);
+}
 
 async function waitForAuth(timeoutMs) {
   const start = Date.now();
