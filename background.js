@@ -33,6 +33,8 @@
   CalendarSync.init();
   // opportunistically renew an expired/stale token left over from a previous session (cold-boot recovery)
   maybeRenew().catch((e) => console.warn("[M365OWA] startup renewal failed:", e.message || e));
+  // verify the token works against OWA once at startup (after the renewal)
+  _runProbe().catch(() => {});
 })();
 
 // OWA service endpoints whose Authorization headers carry fresh bearer tokens.
@@ -378,6 +380,23 @@ const NET_PROBE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/auth
 const NET_PROBE_TIMEOUT_MS = 5000;
 const NET_PROBE_TTL_MS = 10000;
 
+// Last OWA auth-probe result (a GetCalendarView call verifying the token
+// works). Stored so status() can report it without re-probing on every 5s
+// poll. Refreshed by _runProbe() on startup, network reconnection, and
+// explicit diagnostics (Test connection).
+let _owaProbeResult = null;
+
+async function _runProbe(force) {
+  if (!Auth.isAuthenticated()) { _owaProbeResult = null; return _owaProbeResult; }
+  try {
+    await OWA.probe(force);
+    _owaProbeResult = "ok";
+  } catch (e) {
+    _owaProbeResult = "probe failed: " + (e.message || e);
+  }
+  return _owaProbeResult;
+}
+
 async function _probeConnectivity(force) {
   // return cached result when fresh (and not forced)
   if (!force && Date.now() - _netProbeTs < NET_PROBE_TTL_MS) return _netOnline;
@@ -406,6 +425,8 @@ async function _probeConnectivity(force) {
   if (!prev && _netOnline) {
     console.log("[M365OWA] connectivity probe: offline → online, triggering renewal");
     maybeRenew().catch((e) => console.warn("[M365OWA] post-online renewal failed:", e.message || e));
+    // verify the token still works against OWA after recovering connectivity
+    _runProbe().catch(() => {});
   }
   // push connectivity changes to any open options page so the badge updates
   // in real time instead of waiting for the 5s poll.
@@ -764,6 +785,10 @@ browser.runtime.onMessage.addListener((msg) => {
       case "m365-owa-status":
         // return the full status snapshot
         return await globalThis.M365OWA.status();
+      case "m365-owa-probe-status":
+        // force a fresh OWA probe for explicit diagnostics (Test connection)
+        await _runProbe(true);
+        return await globalThis.M365OWA.status();
       case "m365-owa-set-token":
         // store a manually captured token
         await Auth.setToken(msg.token);
@@ -839,8 +864,11 @@ globalThis.M365OWA = {
   async status() {
     // probe result placeholder
     let me = null;
-    // if authenticated, probe OWA to verify the token works
-    if (Auth.isAuthenticated()) { try { await OWA.probe(); me = "ok"; } catch (e) { me = "probe failed: " + e.message; } }
+    // The OWA probe (a GetCalendarView call to Microsoft) is NOT run here
+    // because status() is called every 5s by the badge poll. It is only
+    // run on explicit diagnostics (Test connection / Show status) and on
+    // events (startup / network reconnection) via _runProbe().
+    // owaProbe stays null in the polled snapshot; the badge does not use it.
     // assemble and return the status object
     return {
       authenticated: Auth.isAuthenticated(),
@@ -859,7 +887,7 @@ globalThis.M365OWA = {
       online: (typeof navigator !== "undefined" && navigator.onLine === false) ? false : await _probeConnectivity(),
       host: CONFIG.OWA_HOST,
       connection: CONFIG.CONNECTION_NAME,
-      owaProbe: me,
+      owaProbe: _owaProbeResult,
       contactsAB: ContactsSync.abId,
       providerCal: CalendarSync.tbCalId,
       tokenAgeSec: Math.floor(Auth.tokenAgeMs() / 1000),
