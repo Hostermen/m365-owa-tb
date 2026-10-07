@@ -407,7 +407,20 @@ async function _probeConnectivity(force) {
     console.log("[M365OWA] connectivity probe: offline → online, triggering renewal");
     maybeRenew().catch((e) => console.warn("[M365OWA] post-online renewal failed:", e.message || e));
   }
+  // push connectivity changes to any open options page so the badge updates
+  // in real time instead of waiting for the 5s poll.
+  if (prev !== _netOnline) _broadcastConnectivity(_netOnline);
   return _netOnline;
+}
+
+// Broadcast connectivity state to any open options page (push-based badge
+// updates). runtime.sendMessage is not delivered to the sender's own
+// context, so the background's onMessage listener won't loop on this.
+// Rejects silently when no options page is listening (page closed).
+function _broadcastConnectivity(online) {
+  try {
+    browser.runtime.sendMessage({ type: "m365-owa-connectivity", online: !!online }).catch(() => {});
+  } catch { /* no receiving end */ }
 }
 
 // Strip framing protections from OWA responses while a hidden renewal runs (registered temporarily).
@@ -694,10 +707,17 @@ browser.alarms.onAlarm.addListener(async (alarm) => {
 // skip the slow OWA frame/tab fallbacks while offline.)
 window.addEventListener("online", () => {
   console.log("[M365OWA] network online — triggering renewal");
+  // force a probe to confirm reachability, then push the result to the UI
+  _probeConnectivity(true).then(() => _broadcastConnectivity(_netOnline)).catch(() => {});
   maybeRenew().catch((e) => console.warn("[M365OWA] online renewal failed:", e.message || e));
 });
 window.addEventListener("offline", () => {
   console.log("[M365OWA] network offline — renewal paused, will retry when online");
+  // optimistically mark offline instantly for responsive UI; the next probe
+  // will confirm or correct this.
+  _netOnline = false;
+  _netProbeTs = Date.now();
+  _broadcastConnectivity(false);
 });
 
 // Listen for token/config changes and control messages from the options page.
