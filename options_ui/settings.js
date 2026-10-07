@@ -5,6 +5,26 @@ async function send(msg) {
   return await browser.runtime.sendMessage(msg);
 }
 
+// --- Dark mode toggle (persisted in localStorage) ---
+(function initTheme() {
+  const root = document.documentElement;
+  const saved = localStorage.getItem("m365-owa-theme");
+  if (saved === "dark") root.setAttribute("data-theme", "dark");
+  const toggle = $("themeToggle");
+  if (toggle) {
+    toggle.addEventListener("click", () => {
+      const isDark = root.getAttribute("data-theme") === "dark";
+      if (isDark) {
+        root.removeAttribute("data-theme");
+        localStorage.setItem("m365-owa-theme", "light");
+      } else {
+        root.setAttribute("data-theme", "dark");
+        localStorage.setItem("m365-owa-theme", "dark");
+      }
+    });
+  }
+})();
+
 function setErr(msg, cls) {
   const el = $("err");
   el.textContent = msg;
@@ -35,8 +55,24 @@ function updateConnectBadge(status) {
     el.innerHTML = "";
     return;
   }
-  if (status.authenticated) {
+  // offline takes priority over everything — show red even when the access
+  // token is still valid in memory (sync can't run without a network).
+  if (status.online === false) {
+    el.replaceChildren(badge("danger", "Offline ✗"));
+  } else if (status.authenticated) {
     el.replaceChildren(badge("ok", "Connected ✓"));
+  } else if (status.configured) {
+    // account is set up (refresh token present) but the access token is not
+    // live yet — a background renewal is running or pending. Show an amber
+    // "pending" badge instead of the grey "Not connected" one so the user
+    // knows the addon is recovering on its own (e.g. cold boot, offline).
+    if (status.renewing) {
+      el.replaceChildren(badge("warn", "Reconnecting…"));
+    } else if (status.retryPending) {
+      el.replaceChildren(badge("warn", "Token expired — retrying…"));
+    } else {
+      el.replaceChildren(badge("warn", "Token expired — click Renew token or wait"));
+    }
   } else if (status.owaTabOpen) {
     el.replaceChildren(badge("off", "Waiting for OWA login — complete it in the opened tab"));
   } else {
@@ -97,13 +133,22 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     failCount = 0;
-    if (s.authenticated) {
-      await updateConnectButton();
-      clearInterval(badgePoll);
-      badgePoll = null;
+    // keep the Connect/Disconnect button in sync with the configured state too
+    // (the initial updateConnectButton() on load may have seen a null status
+    // while the background was still starting up on a cold boot).
+    const btn = $("connectBtn");
+    if (s.authenticated || s.configured) {
+      btn.textContent = "Disconnect";
+      btn.classList.remove("primary");
     } else {
-      updateConnectBadge(s);
+      btn.textContent = "Connect";
+      btn.classList.add("primary");
     }
+    updateConnectBadge(s);
+    // keep polling for the lifetime of the options page so both
+    // online→offline and offline→online transitions update the badge
+    // within ~5s without the user reopening the page. The sendMessage
+    // is a cheap in-process call, so running it indefinitely is fine.
   }, 5000);
 });
 
@@ -121,7 +166,11 @@ async function waitForAuth(timeoutMs) {
 async function updateConnectButton() {
   const status = await refreshStatus();
   const btn = $("connectBtn");
-  if (status && status.authenticated) {
+  // Show "Disconnect" when the account is configured (a refresh token is
+  // stored or a live access token exists) even if the access token is
+  // currently expired/pending renewal — the user has set the account up, so
+  // the button should not flip back to "Connect" on every cold boot.
+  if (status && (status.authenticated || status.configured)) {
     btn.textContent = "Disconnect";
     btn.classList.remove("primary");
   } else {

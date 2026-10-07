@@ -29,6 +29,7 @@ export default [
         Headers: "readonly",
         Request: "readonly",
         Response: "readonly",
+        AbortController: "readonly",
         atob: "readonly",
         btoa: "readonly",
         crypto: "readonly",

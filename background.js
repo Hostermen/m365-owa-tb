@@ -14,8 +14,16 @@
   registerRefreshTokenHarvester();
   // schedule the periodic token-renewal alarm
   await browser.alarms.create("m365-owa-renew", { periodInMinutes: 20 });
+  // schedule a connectivity-probe alarm (every 30s) so the offline → online
+  // transition is detected quickly even when the options page is closed.
+  // navigator.onLine/window events are unreliable in the TB background.
+  await browser.alarms.create("m365-owa-netprobe", { periodInMinutes: 0.5 });
+  // probe connectivity once at startup so _netOnline is accurate before the
+  // first maybeRenew() (otherwise a cold boot with no internet would try the
+  // slow OWA frame/tab fallbacks before the probe marks the net offline).
+  await _probeConnectivity(true);
   // log the startup auth state and configured host
-  console.log("[M365OWA] startup. authenticated:", Auth.isAuthenticated(), "host:", CONFIG.OWA_HOST);
+  console.log("[M365OWA] startup. authenticated:", Auth.isAuthenticated(), "host:", CONFIG.OWA_HOST, "online:", _netOnline);
 
   // if already authenticated, initialise contacts sync (best-effort)
   if (Auth.isAuthenticated()) {
@@ -352,6 +360,55 @@ let _renewalSawServiceCall = false;
 let _renewRetryTimer = null;
 // Index into the renewal-retry backoff sequence for the current retry run.
 let _renewRetryIndex = 0;
+// True while any renewal attempt (PKCE / OWA refresh / hidden iframe / tab) is
+// in progress. Exposed via status() so the options badge can show a pending
+// state instead of "Not connected" while a background refresh is running.
+let _renewInProgress = false;
+
+// --- Network connectivity probe ---
+// navigator.onLine is unreliable in the Thunderbird background context (it
+// reports "online" whenever any network interface is up, even with no
+// internet). We probe the Microsoft login endpoint directly: any HTTP
+// response means we can reach Microsoft; a network error means offline.
+// The result drives the options badge ("Offline ✗" in red) and triggers an
+// immediate renewal on the offline → online transition.
+let _netOnline = true;
+let _netProbeTs = 0;
+const NET_PROBE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
+const NET_PROBE_TIMEOUT_MS = 5000;
+const NET_PROBE_TTL_MS = 10000;
+
+async function _probeConnectivity(force) {
+  // return cached result when fresh (and not forced)
+  if (!force && Date.now() - _netProbeTs < NET_PROBE_TTL_MS) return _netOnline;
+  const prev = _netOnline;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), NET_PROBE_TIMEOUT_MS);
+    // GET + redirect:manual → a 302 resolves as an opaque-redirect response
+    // (no body downloaded); a network failure rejects. Either way we learn
+    // whether Microsoft is reachable.
+    await fetch(NET_PROBE_URL, {
+      method: "GET",
+      cache: "no-store",
+      signal: ctrl.signal,
+      credentials: "omit",
+      redirect: "manual",
+    });
+    clearTimeout(t);
+    _netOnline = true;
+  } catch {
+    _netOnline = false;
+  }
+  _netProbeTs = Date.now();
+  // offline → online transition: trigger an immediate renewal so recovery
+  // is instant (don't wait for the next backoff retry or the 20-min alarm).
+  if (!prev && _netOnline) {
+    console.log("[M365OWA] connectivity probe: offline → online, triggering renewal");
+    maybeRenew().catch((e) => console.warn("[M365OWA] post-online renewal failed:", e.message || e));
+  }
+  return _netOnline;
+}
 
 // Strip framing protections from OWA responses while a hidden renewal runs (registered temporarily).
 function stripFrameHeaders(details) {
@@ -505,6 +562,9 @@ async function maybeRenew() {
   // remember whether we were authenticated before this renewal attempt
   // (cold boot: refresh token present but no live access token → bootstrap after)
   const wasAuth = Auth.isAuthenticated();
+  // mark a renewal as in progress (for the options badge pending state)
+  _renewInProgress = true;
+  try {
 
   // === Priority 1: PKCE refresh token (90-day rolling, public client — never re-login) ===
   if (Auth.hasPkceRefreshToken()) {
@@ -558,6 +618,17 @@ async function maybeRenew() {
     console.log("[M365OWA] maybeRenew: no OWA refresh token stored, trying hidden iframe");
   }
 
+  // When the network is unreachable, the hidden-iframe and tab fallbacks
+  // cannot succeed (they need to load OWA over the network) and would just
+  // burn 90s+90s before timing out. Skip them and go straight to a backoff
+  // retry — the connectivity probe (_probeConnectivity) triggers an immediate
+  // maybeRenew() as soon as Microsoft is reachable again.
+  if (!_netOnline) {
+    console.log("[M365OWA] network offline — skipping OWA frame/tab renewal, scheduling retry");
+    _scheduleRenewRetry();
+    return;
+  }
+
   // fall back to the non-intrusive hidden iframe (works when the network is warm)
   let r = await renewTokenHidden();
   if (r.ok) { _clearRenewRetry(); return; }
@@ -569,6 +640,9 @@ async function maybeRenew() {
 
   // all renewal methods failed — schedule a backoff retry so we keep trying automatically
   _scheduleRenewRetry();
+  } finally {
+    _renewInProgress = false;
+  }
 }
 
 // Schedule a renewal retry with exponential backoff (1, 2, 4, 5 min), capped at 5 minutes.
@@ -599,10 +673,31 @@ function _clearRenewRetry() {
 
 // Periodic renewal alarm: re-check and renew the token every 20 minutes (also catches expiry between retries).
 browser.alarms.onAlarm.addListener(async (alarm) => {
-  // only handle our own renewal alarm
-  if (!alarm || alarm.name !== "m365-owa-renew") return;
-  // run the renewal check, logging failures
-  await maybeRenew().catch((e) => console.warn("[M365OWA] background renewal failed:", e.message || e));
+  // only handle our own alarms
+  if (!alarm) return;
+  if (alarm.name === "m365-owa-renew") {
+    // run the renewal check, logging failures
+    await maybeRenew().catch((e) => console.warn("[M365OWA] background renewal failed:", e.message || e));
+  } else if (alarm.name === "m365-owa-netprobe") {
+    // connectivity probe — detects offline → online transitions (and
+    // triggers an immediate renewal) even when the options page is closed.
+    await _probeConnectivity(true).catch(() => {});
+  }
+});
+
+// Network connectivity listeners: trigger an immediate renewal as soon as the
+// browser regains connectivity. On a cold boot with no network the token refresh
+// fails and falls into the backoff retry loop; without this the addon would
+// wait up to 5 minutes (next backoff tick) before noticing the network is back.
+// The "online" event fires on the background page window when the OS reports a
+// working network interface. (navigator.onLine is also used in maybeRenew() to
+// skip the slow OWA frame/tab fallbacks while offline.)
+window.addEventListener("online", () => {
+  console.log("[M365OWA] network online — triggering renewal");
+  maybeRenew().catch((e) => console.warn("[M365OWA] online renewal failed:", e.message || e));
+});
+window.addEventListener("offline", () => {
+  console.log("[M365OWA] network offline — renewal paused, will retry when online");
 });
 
 // Listen for token/config changes and control messages from the options page.
@@ -729,6 +824,19 @@ globalThis.M365OWA = {
     // assemble and return the status object
     return {
       authenticated: Auth.isAuthenticated(),
+      // "configured" = the user has logged in before and the addon holds a
+      // refresh token (PKCE 90-day or OWA 24h SPA) or a live access token. The
+      // options Connect button shows "Disconnect" in this state even when the
+      // access token is currently expired/pending renewal, so the user can
+      // tell the account is set up rather than seeing "Connect" on every cold boot.
+      configured: Auth.hasPkceRefreshToken() || Auth.hasRefreshToken() || !!Auth._token,
+      // a renewal attempt (PKCE / OWA refresh / hidden iframe / tab) is running now
+      renewing: _renewInProgress,
+      // a backoff retry is scheduled (last renewal failed and will be retried)
+      retryPending: _renewRetryTimer != null,
+      // browser-reported network connectivity: probe Microsoft directly
+      // (navigator.onLine is unreliable in the TB background context)
+      online: (typeof navigator !== "undefined" && navigator.onLine === false) ? false : await _probeConnectivity(),
       host: CONFIG.OWA_HOST,
       connection: CONFIG.CONNECTION_NAME,
       owaProbe: me,
@@ -736,8 +844,8 @@ globalThis.M365OWA = {
       providerCal: CalendarSync.tbCalId,
       tokenAgeSec: Math.floor(Auth.tokenAgeMs() / 1000),
       tokenExpiry: Auth.getTokenExpiry(),
-      hasRefresh: Auth.hasRefreshToken(),
-      hasPkceRefresh: Auth.hasPkceRefreshToken(),
+      hasRefreshOWA: Auth.hasRefreshToken(),
+      hasRefreshPKCE: Auth.hasPkceRefreshToken(),
       owaTabOpen: (await Auth._liveOwaTabId()) != null,
     };
   },

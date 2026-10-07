@@ -9,33 +9,96 @@
       --green-dark: #15803d;
       --green-light: #dcfce7;
       --green-tint: #f0fdf4;
+      --amber: #d97706;
+      --amber-dark: #b45309;
+      --amber-light: #fef3c7;
+      --red: #dc2626;
+      --red-dark: #b91c1c;
+      --red-light: #fee2e2;
       --border: #e5e7eb;
       --text: #1f2937;
       --muted: #6b7280;
       --bg: #f9fafb;
       --white: #fff;
-      --red: #dc2626;
+      --card-bg: rgba(255,255,255,0.92);
+      --shadow: rgba(0,0,0,0.06);
+      --off-badge-bg: #f3f4f6;
+      --off-dot: #9ca3af;
+      --status-bg: #f9fafb;
       --radius: 10px;
+    }
+    :root[data-theme="dark"] {
+      --green: #22c55e;
+      --green-dark: #16a34a;
+      --green-light: #14532d;
+      --green-tint: #052e16;
+      --amber: #f59e0b;
+      --amber-dark: #d97706;
+      --amber-light: #78350f;
+      --red: #ef4444;
+      --red-dark: #f87171;
+      --red-light: #7f1d1d;
+      --border: #374151;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --bg: #0f0f10;
+      --white: #1f1f23;
+      --card-bg: rgba(31,31,35,0.92);
+      --shadow: rgba(0,0,0,0.3);
+      --off-badge-bg: #374151;
+      --off-dot: #6b7280;
+      --status-bg: #18181b;
     }
     * { box-sizing: border-box; }
     body {
       font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
       max-width: 580px; margin: 0 auto; padding: 32px 20px;
       color: var(--text); background: var(--bg); position: relative; min-height: 100vh;
+      transition: background 0.4s ease, color 0.4s ease;
     }
     #particles-js {
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
       z-index: 0; pointer-events: none;
     }
-    body > *:not(#particles-js) { position: relative; z-index: 1; }
+    body > *:not(#particles-js):not(#themeToggle) { position: relative; z-index: 1; }
     .card {
-      background: rgba(255,255,255,0.92); backdrop-filter: blur(6px);
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      background: var(--card-bg); backdrop-filter: blur(6px);
+      box-shadow: 0 1px 3px var(--shadow);
+      transition: background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
     }
     details.advanced {
-      background: rgba(255,255,255,0.92); backdrop-filter: blur(6px);
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      background: var(--card-bg); backdrop-filter: blur(6px);
+      box-shadow: 0 1px 3px var(--shadow);
+      transition: background 0.4s ease, border-color 0.4s ease;
     }
+    /* --- Dark mode toggle (upper-left corner) --- */
+    #themeToggle {
+      position: fixed; top: 16px; left: 16px; z-index: 10;
+      width: 42px; height: 22px; border-radius: 11px;
+      background: var(--off-badge-bg);
+      border: 1px solid var(--border);
+      cursor: pointer; padding: 0; outline: none;
+      box-shadow: 0 1px 3px var(--shadow);
+      transition: background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+      display: flex; align-items: center;
+    }
+    #themeToggle:hover { border-color: var(--green); }
+    #themeToggle .knob {
+      width: 16px; height: 16px; border-radius: 50%;
+      background: var(--muted); margin-left: 2px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; line-height: 1; color: #fff;
+      transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.4s ease;
+    }
+    :root[data-theme="dark"] #themeToggle .knob {
+      transform: translateX(20px);
+      background: var(--green);
+    }
+    #themeToggle .knob .sun { display: block; }
+    #themeToggle .knob .moon { display: none; }
+    :root[data-theme="dark"] #themeToggle .knob .sun { display: none; }
+    :root[data-theme="dark"] #themeToggle .knob .moon { display: block; }
     h1 {
       font-size: 1.4rem; font-weight: 700; margin: 0 0 4px;
       display: flex; align-items: center; gap: 10px;
@@ -47,14 +110,14 @@
       letter-spacing: 0.05em; color: var(--muted); margin: 0 0 12px;
     }
     .card {
-      background: var(--white); border: 1px solid var(--border);
+      background: var(--card-bg); border: 1px solid var(--border);
       border-radius: var(--radius); padding: 20px; margin-bottom: 16px;
     }
     label { display: block; margin: 0 0 6px; font-weight: 600; font-size: 0.9rem; }
     select, input[type=text], input[type=number], textarea {
       width: 100%; padding: 9px 12px; font-size: 0.95rem;
       border: 1px solid var(--border); border-radius: 8px;
-      background: var(--white); color: var(--text); transition: border 0.15s;
+      background: var(--white); color: var(--text); transition: border 0.15s, background 0.4s ease, color 0.4s ease;
     }
     select:focus, input:focus, textarea:focus {
       outline: none; border-color: var(--green); box-shadow: 0 0 0 3px var(--green-light);
@@ -64,7 +127,7 @@
     button {
       padding: 10px 18px; font-size: 0.95rem; font-weight: 600;
       cursor: pointer; border: 1px solid var(--border); background: var(--white);
-      border-radius: 8px; color: var(--text); transition: all 0.15s;
+      border-radius: 8px; color: var(--text); transition: all 0.15s, background 0.4s ease, color 0.4s ease, border-color 0.4s ease;
     }
     button:hover { border-color: var(--muted); }
     button.primary {
@@ -80,10 +143,14 @@
       border-radius: 20px; margin-bottom: 14px;
     }
     .status-badge.ok { background: var(--green-light); color: var(--green-dark); }
-    .status-badge.off { background: #f3f4f6; color: var(--muted); }
+    .status-badge.off { background: var(--off-badge-bg); color: var(--muted); }
+    .status-badge.warn { background: var(--amber-light); color: var(--amber-dark); }
+    .status-badge.danger { background: var(--red-light); color: var(--red-dark); }
     .status-badge .dot { width: 8px; height: 8px; border-radius: 50%; }
     .status-badge.ok .dot { background: var(--green); }
-    .status-badge.off .dot { background: #9ca3af; }
+    .status-badge.off .dot { background: var(--off-dot); }
+    .status-badge.warn .dot { background: var(--amber); }
+    .status-badge.danger .dot { background: var(--red); }
     #connectStatus { margin: 8px 0 0; }
     #err {
       margin-top: 12px; font-size: 0.88rem; font-weight: 500;
@@ -92,7 +159,7 @@
     #err.ok { color: var(--green-dark); }
     #err.err { color: var(--red); }
     #err.working { color: var(--muted); }
-    code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 0.82em; }
+    code { background: var(--status-bg); padding: 1px 5px; border-radius: 4px; font-size: 0.82em; transition: background 0.4s ease; }
     textarea { font-family: monospace; min-height: 80px; resize: vertical; }
     a.bm {
       font-family: monospace; background: var(--green-tint); padding: 10px 14px;
@@ -101,7 +168,7 @@
     }
     details.advanced {
       margin-top: 8px; border: 1px solid var(--border); border-radius: var(--radius);
-      background: var(--white); overflow: hidden;
+      background: var(--card-bg); overflow: hidden;
     }
     details.advanced summary {
       padding: 14px 20px; cursor: pointer; font-weight: 600; font-size: 0.9rem;
@@ -117,7 +184,8 @@
     .adv-content { padding: 0 20px 20px; }
     .adv-section { margin-top: 16px; }
     #status {
-      margin-top: 12px; padding: 12px; background: var(--bg); border-radius: 8px;
+      margin-top: 12px; padding: 12px; background: var(--status-bg); border-radius: 8px;
+      transition: background 0.4s ease;
       white-space: pre-wrap; font-family: monospace; font-size: 0.78rem;
       max-height: 240px; overflow-y: auto; color: var(--muted);
     }
@@ -126,8 +194,14 @@
 </head>
 <body>
   <div id="particles-js"></div>
+  <button id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode">
+    <span class="knob">
+      <span class="sun">&#9728;</span>
+      <span class="moon">&#9789;</span>
+    </span>
+  </button>
   <h1>
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--green);">
       <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c2.5-2.7 4-6.2 4-9s-1.5-6.3-4-9m0 18c-2.5-2.7-4-6.2-4-9s1.5-6.3 4-9"/>
     </svg>
     M365 OWA Sync
