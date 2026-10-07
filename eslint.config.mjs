@@ -50,6 +50,7 @@ export default [
         // all background scripts into one shared scope, so these top-level
         // vars are visible to each other but eslint sees each file in isolation)
         CONFIG: "readonly",
+        TbOAuth: "readonly",
         Auth: "readonly",
         OWA: "readonly",
         VCard: "readonly",

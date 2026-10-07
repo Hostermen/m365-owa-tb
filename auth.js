@@ -22,6 +22,18 @@ var Auth = {
   _refreshTokens: [],
   // flag: true while we're making our own token refresh fetch (so the webRequest harvester skips us)
   _selfRefreshActive: false,
+  // ms epoch of the last "interactive" harvest (from OWA's own MSAL flow via
+  // webRequest/content-script/page-hook — NOT from our own refresh-token POST).
+  // SPA refresh tokens die 24h after the last interactive auth, so we use this
+  // to proactively trigger cookie-based renewal before the window expires.
+  _lastInteractiveHarvestTs: 0,
+
+  // --- PKCE refresh token (90-day rolling, survives reboots) ---
+  // Obtained via our own OAuth2 PKCE flow using Thunderbird's client_id.
+  // This is a PUBLIC CLIENT (not SPA) → 90-day rolling refresh tokens.
+  // This is the primary auth method: log in once, never re-login (as long as
+  // Thunderbird runs at least once every 90 days).
+  _pkceRefreshToken: null,
 
   // storage key for the token
   _key() { return "m365_owa_token_" + (CONFIG.CONNECTION_NAME || "default"); },
@@ -31,6 +43,10 @@ var Auth = {
   _tsKey() { return "m365_owa_captured_" + (CONFIG.CONNECTION_NAME || "default"); },
   // storage key for the refresh-token array (plural — distinct from legacy single-value keys)
   _rkey() { return "m365_owa_refresh_tokens_" + (CONFIG.CONNECTION_NAME || "default"); },
+  // storage key for the last interactive harvest timestamp
+  _ihKey() { return "m365_owa_interactive_harvest_ts_" + (CONFIG.CONNECTION_NAME || "default"); },
+  // storage key for the PKCE refresh token (90-day rolling, Thunderbird client_id)
+  _pkceKey() { return "m365_owa_pkce_refresh_" + (CONFIG.CONNECTION_NAME || "default"); },
 
   // Restore token, expired flag, and capture timestamp from storage.local into memory.
   async loadStoredToken() {
@@ -123,11 +139,70 @@ var Auth = {
     } else {
       console.log("[M365OWA] no refresh tokens stored");
     }
+    // restore the last interactive harvest timestamp (for SPA refresh scheduling)
+    const ihk = this._ihKey();
+    const { [ihk]: ihs } = await browser.storage.local.get(ihk);
+    this._lastInteractiveHarvestTs = ihs || 0;
+    if (this._lastInteractiveHarvestTs) {
+      const hoursAgo = Math.round((Date.now() - this._lastInteractiveHarvestTs) / 3600000);
+      console.log("[M365OWA] last interactive harvest: " + hoursAgo + "h ago");
+    }
   },
 
   // Persist the refresh-token array to storage.local.
   async _persistRefreshTokens() {
     await browser.storage.local.set({ [this._rkey()]: this._refreshTokens });
+  },
+
+  // Load the PKCE refresh token from storage.local (90-day rolling refresh token
+  // from our own OAuth2 PKCE flow using Thunderbird's client_id).
+  async loadStoredPkceToken() {
+    const k = this._pkceKey();
+    const { [k]: rt } = await browser.storage.local.get(k);
+    this._pkceRefreshToken = rt || null;
+    if (this._pkceRefreshToken) {
+      console.log("[M365OWA] PKCE refresh token loaded (len=" + this._pkceRefreshToken.length +
+        " start=" + this._pkceRefreshToken.slice(0, 20) + ")");
+    } else {
+      console.log("[M365OWA] no PKCE refresh token stored (user has not logged in via PKCE yet)");
+    }
+  },
+
+  // Store access + refresh tokens obtained from the PKCE flow.
+  // Called after both the initial login and each successful refresh.
+  async setPkceTokens(data) {
+    // store the access token immediately (authenticates the addon right now)
+    if (data.access_token) await this.setToken(data.access_token);
+    // persist the refresh token (90-day rolling — this is the key to "never re-login")
+    if (data.refresh_token) {
+      this._pkceRefreshToken = data.refresh_token;
+      await browser.storage.local.set({ [this._pkceKey()]: data.refresh_token });
+      console.log("[M365OWA] PKCE refresh token stored (len=" + data.refresh_token.length + ")");
+    }
+  },
+
+  // Refresh the access token using the stored PKCE refresh token.
+  // Returns { ok, reason } — on permanent failure (invalid_grant) the PKCE
+  // token is cleared so the user needs to re-login interactively.
+  async refreshViaPkce() {
+    if (!this._pkceRefreshToken) return { ok: false, reason: "no PKCE refresh token stored" };
+    try {
+      const r = await TbOAuth.refreshToken(this._pkceRefreshToken);
+      if (r.ok) {
+        // store the new access token + rotated refresh token
+        await this.setPkceTokens(r.data);
+        return { ok: true };
+      }
+      // permanent failure — clear the PKCE token (user must re-login)
+      if (r.invalidGrant) {
+        console.log("[M365OWA] PKCE refresh token permanently invalid (invalid_grant), clearing");
+        this._pkceRefreshToken = null;
+        await browser.storage.local.remove(this._pkceKey());
+      }
+      return { ok: false, reason: r.reason };
+    } catch (e) {
+      return { ok: false, reason: (e && e.message) || String(e) };
+    }
   },
 
   // Extract a bare token from an Authorization header value ("Bearer xxx"); returns null if absent.
@@ -205,7 +280,9 @@ var Auth = {
     this._owaTabId = null;
     // clear the refresh-token array
     this._refreshTokens = [];
-    // delete token, flag, timestamp, refresh-token array, and legacy single-value keys from storage
+    // clear the PKCE refresh token
+    this._pkceRefreshToken = null;
+    // delete token, flag, timestamp, refresh-token array, PKCE token, and legacy single-value keys from storage
     const conn = CONFIG.CONNECTION_NAME || "default";
     const legacyKeys = [
       "m365_owa_refresh_token_" + conn,
@@ -213,7 +290,7 @@ var Auth = {
       "m365_owa_refresh_url_" + conn,
       "m365_owa_refresh_scope_" + conn,
     ];
-    await browser.storage.local.remove([this._key(), this._expKey(), this._tsKey(), this._rkey(), ...legacyKeys]);
+    await browser.storage.local.remove([this._key(), this._expKey(), this._tsKey(), this._rkey(), this._pkceKey(), this._ihKey(), ...legacyKeys]);
   },
 
   // Return the current token, throwing if none exists or it is flagged expired.
@@ -314,6 +391,11 @@ var Auth = {
     if (accessToken) {
       await this.setToken(accessToken);
     }
+    // record the timestamp of this interactive harvest (from OWA's own MSAL flow,
+    // not from our own refresh-token POST). Used to schedule proactive cookie-based
+    // renewal before the 24h SPA refresh-token window expires.
+    this._lastInteractiveHarvestTs = Date.now();
+    await browser.storage.local.set({ [this._ihKey()]: this._lastInteractiveHarvestTs });
     return true;
   },
 
@@ -361,7 +443,10 @@ var Auth = {
       });
       if (resp.status !== 200) {
         const txt = await resp.text().catch(() => "");
-        return { ok: false, reason: resp.status + ": " + txt.slice(0, 300) };
+        // detect permanent invalid_grant (e.g. AADSTS9002313) — the refresh token
+        // is permanently invalid; no point trying more strategies on it.
+        const invalidGrant = /"error"\s*:\s*"invalid_grant"/i.test(txt);
+        return { ok: false, reason: resp.status + ": " + txt.slice(0, 300), invalidGrant };
       }
       const data = await resp.json();
       if (!data.access_token) {
@@ -380,6 +465,9 @@ var Auth = {
   async refreshViaRefreshToken() {
     if (!this._refreshTokens.length) return { ok: false, reason: "no refresh tokens stored" };
     this._selfRefreshActive = true;
+    const invalidIndices = new Set();
+    let successClientId = null;
+    let successRefreshToken = null;
     try {
       // OWA resource URI used with the v1 token endpoint's `resource` parameter
       const OWA_RESOURCE = "https://outlook.office.com";
@@ -394,8 +482,9 @@ var Auth = {
           " url=" + (entry.url || "?"));
         // skip entries missing required fields
         if (!entry.url || !entry.clientId) {
-          console.log("[M365OWA] refresh: token[" + ti + "] missing url or client_id, skipping");
+          console.log("[M365OWA] refresh: token[" + ti + "] missing url or client_id, removing");
           lastReason = "token[" + ti + "] missing url or client_id";
+          invalidIndices.add(ti);
           continue;
         }
         // derive endpoint URLs from the stored URL
@@ -464,23 +553,52 @@ var Auth = {
               await this._persistRefreshTokens();
               console.log("[M365OWA] refresh: token[" + ti + "] rotated (new start=" + r.data.refresh_token.slice(0, 20) + ")");
             }
+            // remember which client_id succeeded so we can prune stale same-lineage tokens
+            successClientId = entry.clientId;
+            successRefreshToken = entry.refreshToken;
             console.log("[M365OWA] access token refreshed (token[" + ti + "] strategy: " + s.label + ")");
             return { ok: true };
           }
           lastReason = "token[" + ti + "] " + s.label + " -> " + r.reason;
           console.log("[M365OWA] refresh: token[" + ti + "] " + s.label + " failed: " + r.reason);
+          if (r.invalidGrant) {
+            invalidIndices.add(ti);
+            console.log("[M365OWA] refresh: token[" + ti + "] permanently invalid (invalid_grant), skipping remaining strategies");
+            break;
+          }
         }
       }
       return { ok: false, reason: lastReason };
     } catch (e) {
       return { ok: false, reason: (e && e.message) || String(e) };
     } finally {
+      // prune permanently-invalid tokens and stale same-lineage duplicates
+      if (invalidIndices.size || successClientId) {
+        let pruned = this._refreshTokens.filter((_, idx) => !invalidIndices.has(idx));
+        if (successClientId) {
+          // keep tokens from other client_ids; for the succeeded client_id keep
+          // only the just-rotated token (others of the same lineage are now stale)
+          pruned = pruned.filter(e =>
+            e.clientId !== successClientId || e.refreshToken === successRefreshToken
+          );
+        }
+        if (pruned.length !== this._refreshTokens.length) {
+          console.log("[M365OWA] refresh: pruning " + (this._refreshTokens.length - pruned.length) +
+            " stale token(s) (" + invalidIndices.size + " invalid_grant, " +
+            (successClientId ? "same-lineage" : "0") + ")");
+          this._refreshTokens = pruned;
+          await this._persistRefreshTokens();
+        }
+      }
       this._selfRefreshActive = false;
     }
   },
 
   // Return true when at least one refresh token is stored.
   hasRefreshToken() { return this._refreshTokens.length > 0; },
+
+  // Return true when a PKCE refresh token is stored (90-day rolling).
+  hasPkceRefreshToken() { return !!this._pkceRefreshToken; },
 
   // Return true only when a token exists and is not flagged expired.
   isAuthenticated() { return !!this._token && !this._expired; },
