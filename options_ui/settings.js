@@ -220,7 +220,7 @@ $("connectBtn").addEventListener("click", async () => {
 $("testConn").addEventListener("click", async () => {
   setErr("Testing…", "working");
   try {
-    const s = await send({ type: "m365-owa-status" });
+    const s = await send({ type: "m365-owa-probe-status" });
     if (s && s.owaProbe === "ok") setErr("Connection OK ✓", "ok");
     else setErr("Probe failed: " + (s && s.owaProbe), "err");
   } catch (e) {
