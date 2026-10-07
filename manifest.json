@@ -8,6 +8,7 @@
     "gecko": {
       "id": "m365-owa@luk27094.local",
       "strict_min_version": "156.0",
+      "strict_max_version": "999.*",
       "data_collection_permissions": { "required": ["none"] }
     }
   },
