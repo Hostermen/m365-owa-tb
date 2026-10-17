@@ -18,7 +18,7 @@ before it expires.
 - **Contacts sync** — pull contacts into a Thunderbird address book and
   push contact changes back to OWA.
 - **Automatic token refresh** — captures fresh tokens from your OWA
-  session and renews them in a hidden background frame before
+  session and renews them in the background frame before
   they expire.
 - **Auto-fetched folder names** — calendar and contacts folder display
   names are retrieved from OWA at startup.
