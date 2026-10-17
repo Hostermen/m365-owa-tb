@@ -75,5 +75,5 @@ Rename it to `m365-owa-tb.xpi` and install in Thunderbird.
 [Mozilla Public License 2.0](LICENSE).
 
 Bundled third-party library:
-- `options_ui/particles.min.js` — [particles.js](https://github.com/VincentGarreau/particles.js)
-  by Vincent Garreau, MIT license.
+- `options_ui/particles.js` — [particles.js](https://github.com/VincentGarreau/particles.js)
+  by Vincent Garreau, MIT license (vendored from the official npm release 2.0.0).

@@ -70,7 +70,7 @@ tracking.
 
 ## Third-party code
 
-- `options_ui/particles.min.js` — a visual animation library
+- `options_ui/particles.js` — a visual animation library
   ([particles.js](https://github.com/VincentGarreau/particles.js), MIT
   license) used solely for the settings page background. It does not
   access, collect, or transmit any data.
