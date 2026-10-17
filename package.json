@@ -1,13 +1,13 @@
 {
   "name": "m365-owa-tb",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Sync Microsoft 365 calendar and contacts with Thunderbird via OWA service endpoints.",
   "private": true,
   "scripts": {
     "watch": "node dev/watch.js",
     "lint": "web-ext lint --source-dir .",
     "eslint": "eslint .",
-    "build": "rm -f m365-owa-tb.xpi && zip -r -q m365-owa-tb.xpi . -x '.git/*' 'm365-owa-tb.xpi' 'm365-owa-tb.xpi.extracted*' 'm365-owa-tb.xpi.extracted*/*' 'node_modules/*' 'package.json' 'package-lock.json' '*.log' '.eslintcache' 'dev/*' '.gitignore' '.codespell-ignore' '.pre-commit-config.yaml' '.secrets.baseline.json' 'commitlint.config.mjs' 'eslint.config.mjs'"
+    "build": "rm -f m365-owa-tb.xpi && zip -r -q m365-owa-tb.xpi . -x '.git/*' 'm365-owa-tb.xpi' 'm365-owa-tb.xpi.extracted*' 'm365-owa-tb.xpi.extracted*/*' 'node_modules/*' 'package.json' 'package-lock.json' '*.log' '.eslintcache' 'dev/*' '.gitignore' '.codespell-ignore' '.pre-commit-config.yaml' '.secrets.baseline.json' 'commitlint.config.mjs' 'eslint.config.mjs' 'xpi-review*' 'xpi-review*/*' '.cache/*' '.cache'"
   },
   "devDependencies": {
     "eslint": "^9.0.0",
