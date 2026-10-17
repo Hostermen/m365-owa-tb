@@ -81,7 +81,7 @@ export default [
       "**/node_modules/**",
       "**/*.min.js",
       "experiments/**",
-      "options_ui/particles.min.js",
+      "options_ui/particles.js",
       "dev/**",
     ],
   },
