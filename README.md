@@ -9,12 +9,12 @@ Click **Connect** in the addon settings to log in. The addon first opens
 a Microsoft sign-in page and performs an OAuth2 PKCE login directly
 against Microsoft's identity platform (`login.microsoftonline.com`),
 using the same OAuth2 client ID Thunderbird itself uses for Microsoft
-OAuth2 — no Azure app registration required. This yields a 90-day
-rolling refresh token that is renewed automatically, so you log in once
-and stay connected (Thunderbird only needs to run at least once every
-90 days). If the PKCE login is unavailable in your tenant, the addon
-falls back to opening Outlook on the web in a Thunderbird tab and
-captures the session token from your own OWA traffic.
+OAuth2. This yields a 90-day rolling refresh token that is renewed 
+automatically, so you log in once and stay connected (Thunderbird only 
+needs to run at least once every 90 days). If the PKCE login is 
+unavailable in your tenant, the addon falls back to opening Outlook 
+on the web in a Thunderbird tab and captures the session token from 
+your own OWA traffic.
 
 ## Features
 
