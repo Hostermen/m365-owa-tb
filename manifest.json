@@ -3,7 +3,7 @@
   "name": "M365 OWA Sync (Contacts + Calendar)",
   "author": "Lukas J. Kümmerle",
   "description": "Sync Microsoft 365 calendar and contacts with Thunderbird.",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "browser_specific_settings": {
     "gecko": {
       "id": "m365-owa@luk27094.local",
@@ -49,9 +49,9 @@
       "alarms": { "count": 5, "actions": ["display", "email"] },
       "tasks": false,
       "events": true,
-      "remove_modes": ["unsubscribe", "delete"],
-      "requires_network": true,
-      "minimum_refresh_interval": 30,
+      "removeModes": ["unsubscribe", "delete"],
+      "requiresNetwork": true,
+      "minimumRefreshInterval": 30,
       "scheduling": "server"
     }
   },
